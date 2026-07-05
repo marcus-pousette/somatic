@@ -17,56 +17,68 @@ hardware must read *every weight once*. So the floor is:
 time / token  ≥  model_bytes / memory_bandwidth
 ```
 
-**Splitting a model across machines does NOT speed up a single stream.** In a
+**Splitting does NOT speed up a stream that already fits on one machine.** In a
 layer-split, machine 2 sits idle while machine 1 works — they run *sequentially*
-per token. So per-token time = `total_bytes / one machine's bandwidth`.
-**Distributing buys you capacity (run a model too big for one box), not speed.**
-Three machines ≈ one machine's decode speed. This is a wall, not a bug — and it's
-why a single big-memory machine beats a pool for anything that fits on it.
+per token, so per-token time = `total_bytes / one machine's bandwidth`. Three
+machines ≈ one machine's decode speed. For a model that fits comfortably on one
+box, **a single big-memory machine beats a pool** — distributing buys capacity,
+not speed.
 
-We call the single-machine floor the **frontier**. `somatic bench` reports what
-% of it your split achieves.
+**But that floor assumes the weights fit in fast memory.** When a model is too big
+to sit comfortably on one machine, that machine falls *off* the roofline — the GPU
+thrashes against its working-set cap and decode craters far below the bandwidth
+floor. That's the regime where splitting wins on *speed*, not just capacity — and
+it's measured below (14B: one cramped machine 1.43 tok/s, split across two 2.88).
 
-## Measured here (Apple Silicon, ~80 GB/s base Mac, bf16, synced, warmed-up)
+We call the single-machine bandwidth floor the **frontier**. `somatic bench`
+reports what % of it your split achieves.
 
-| model | config | decode tok/s | frontier | % of frontier |
-|-------|--------|-------------|----------|---------------|
-| Qwen3-1.7B | 1 machine (split runtime) | **17.1** | 27.4 (measured) | **62%** |
-| Qwen3-1.7B | 2 machines, LAN | ~15 | 27.4 (measured) | ~55% |
-| **Qwen3-14B** (29.5 GB) | **2 Macs, WiFi** — *fits neither alone* | **2.88** | ~3.1 (computed) | **~91%** |
+## Measured head-to-head — Somatic vs llama.cpp, on one real rig
 
-The 14B row is the one that matters — it's a model too big for either machine,
-actually split across two, over ordinary WiFi. Three honest takeaways:
+The first apples-to-apples comparison: **same models, same two machines, same
+precision (F16, 2 bytes/weight), same warmed + synced method**, both runtimes.
+Rig: **Mac A** (M3 Pro, 36 GB) + **Mac B** (M1 Pro, 32 GB), over **2.4 GHz WiFi**.
+Full raw outputs and commands:
+[benchmarks/2026-07-05-head-to-head.md](benchmarks/2026-07-05-head-to-head.md).
 
-1. **Overhead amortizes with model size.** At 1.7B the split runs at ~1.5× the
-   floor (transport + head are a visible tax on a tiny model). At 14B that tax
-   shrinks to ~9% — because weight-reading time scales with the model while the
-   cross-machine hop stays ~4 KB/token. **The bigger the model — the only case
-   you'd split for — the closer the split runs to the physical limit.**
-2. **Bandwidth is destiny.** The 1.7B floor is ~27 tok/s on this base Mac and
-   would be ~60 tok/s on a 200 GB/s Mac. You don't engineer past bandwidth.
-3. The 14B frontier is *computed* (29.5 GB / ~93 GB/s effective, from the 1.7B
-   measurement) because 29.5 GB won't fit on one 32 GB Mac to time directly —
-   which is exactly why you'd split it.
+| model | runtime | config | decode tok/s |
+|-------|---------|--------|-------------:|
+| **1.7B** — *fits one machine* | llama.cpp | 1 machine | **30.2** |
+| 1.7B | llama.cpp | split, loopback RPC | 34.6 |
+| 1.7B | Somatic | 1 machine (split runtime) | 17.1 |
+| 1.7B | Somatic | 2 machines | ~15 |
+| **14B** — *too big for one* | llama.cpp | 1 machine (memory-pressured) | **1.43** |
+| 14B | Somatic | 2 machines | **2.88** |
+| 14B | llama.cpp | 2 machines (RPC over WiFi) | **couldn't load** |
 
-## ⚠️ These are NOT a head-to-head comparison (yet)
+This isn't a clean win — it's a map of where each tool belongs:
 
-Be clear about what's below. The Somatic row above is **measured** on a small
-model (1.7B) on a modest Mac. The rows below are competitors' **reported** figures
-for **70B on 3 machines** on *different* hardware. **You cannot directly compare
-them** — different models, different machines, different bandwidth.
+1. **If the model fits one machine, use one machine.** llama.cpp's mature Metal
+   kernels do 1.7B at 30 tok/s; Somatic's split runtime does 17. Our per-token
+   overhead is real. Splitting a model that already fits is pointless.
+2. **The reason to split is a model that doesn't fit.** On the 36 GB Mac, 14B F16
+   (27.5 GiB, against a ~29.4 GiB Metal cap) falls off the memory cliff — llama.cpp
+   on one machine drops to **1.43 tok/s**. Split across both machines, Somatic runs
+   it at **2.88 — 2× faster** — and models bigger than any one machine become
+   runnable at all.
+3. **The truly fair test — split-vs-split at 14B — we couldn't run.** llama.cpp
+   RPC ships every remote layer's weights over the network at load; our 2.4 GHz
+   WiFi stalled the ~17 GB upload on all three attempts (it works instantly over
+   loopback, so it's the link, not the build). Somatic loads each shard from that
+   host's *own disk* and never makes that transfer — a real edge on home networks.
+   This is **not** a claim that Somatic's compute beats llama.cpp's; the 1.7B row
+   shows it doesn't. It's that shard-local loading is what lets a split *start* on
+   ordinary WiFi.
 
-The only thing that transfers across all of them is the **roofline logic** above
-(memory-bandwidth physics is hardware-agnostic). A *real* comparison requires
-running Somatic **and** a competitor on the **same model and the same machines** —
-that's the next step for this doc (tracked as an open item), not something these
-tables establish. Until then, read the rows below as "what others report," and the
-Somatic row as "what we measured on our rig."
+**Somatic's honest niche:** run a model too big for any one machine you own, over
+the network you already have — where it's 2× a cramped single machine, and where
+the standard tool's split couldn't even load.
 
-## The landscape (reported numbers, cited — not measured by us)
+## The wider landscape (others' reported numbers — not measured by us)
 
-Single-stream tok/s on **70B-class** models on comparable consumer hardware,
-unless noted. Reported figures from public sources; treat as indicative.
+Unlike the table above, these are **not** our measurements — they're figures other
+projects report for **70B-class** models on their own (different) hardware. Kept
+for context; treat as indicative, not comparable to our rig.
 
 | tool | topology | hardware | reported tok/s | source |
 |------|----------|----------|----------------|--------|
@@ -88,14 +100,16 @@ unless noted. Reported figures from public sources; treat as indicative.
 
 ## What to conclude
 
-- **Somatic isn't the fastest — nothing splitting across a home LAN can be.** The
-  point of splitting is running a model that fits *no single machine you own*.
-- The honest differentiator here is **a published, reproducible number and the
-  roofline that explains it** — which the rest of the category does not provide.
-- If a model fits one machine, run it on one machine. If it doesn't, and you have
-  several machines and a privacy/offline requirement, splitting at reading speed
-  is a real option — and now you can measure exactly what you'll get before you
-  commit.
+- **Somatic isn't the fastest runtime.** On anything that fits one machine, a
+  mature single-machine engine beats it — measured, 30 vs 17 tok/s at 1.7B. It
+  doesn't try to be.
+- **Its value shows up exactly when a model won't fit one machine:** the split ran
+  14B at 2× a cramped single machine, and shard-local loading *started* a split
+  over home WiFi where llama.cpp's weight-shipping RPC couldn't even load. That
+  narrow case — a model too big for any one box, on the network you already have —
+  is the whole point.
+- **And the numbers are published, reproducible, and explained by the roofline**,
+  which the rest of the category mostly doesn't provide.
 
 *Numbers here are wall-clock, warmed-up, and synced (MPS/CUDA are asynchronous;
 un-synced timers under-report). Re-run `somatic bench` on your own hardware —

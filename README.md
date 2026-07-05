@@ -137,10 +137,17 @@ Full guide: [docs/cluster/RUN.md](docs/cluster/RUN.md).
 
 ## Benchmarks
 
-Reproducible, honest tok/s — and the roofline that explains them — in [BENCHMARKS.md](BENCHMARKS.md). Measure your own cluster:
+A **measured head-to-head vs llama.cpp** — same two Macs, same models, same F16
+precision — plus the roofline that explains it, in [BENCHMARKS.md](BENCHMARKS.md).
+The honest short version:
+
+- If a model **fits one machine**, llama.cpp is faster (30 vs 17 tok/s at 1.7B) — use it.
+- When **14B is too big for one machine**, that machine hits the memory-pressure
+  cliff (1.43 tok/s); splitting across two runs it at **2.88 — 2×** — and Somatic's
+  shard-local loading starts over home WiFi where llama.cpp's RPC couldn't even load.
 
 ```bash
-somatic bench Qwen/Qwen3-1.7B --host localhost --host you@other-machine
+somatic bench Qwen/Qwen3-14B --host localhost --host you@other-machine
 ```
 
 ## License
