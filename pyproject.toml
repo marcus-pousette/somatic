@@ -1,0 +1,47 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "somaticml"
+version = "0.1.0"
+description = "Run an LLM too big for one machine, split across the machines you have."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Somatic contributors" }]
+keywords = ["llm", "distributed-inference", "model-parallel", "local-first", "self-hosted"]
+dependencies = [
+  "accelerate>=1.0",
+  "fastapi>=0.111",
+  "httpx>=0.27",
+  "huggingface-hub>=0.24",
+  "numpy>=1.26",
+  "pydantic>=2.7",
+  "safetensors>=0.4",
+  "torch>=2.2",
+  "transformers>=4.51",
+  "typer>=0.12",
+  "uvicorn>=0.30",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2",
+  "pytest-asyncio>=0.23",
+]
+
+[project.scripts]
+somatic = "somatic.cli.main:app"
+
+[project.urls]
+Homepage = "https://github.com/somatic-runtime/somatic"
+Repository = "https://github.com/somatic-runtime/somatic"
+
+[tool.hatch.build.targets.wheel]
+packages = ["somatic"]
+artifacts = ["somatic/cluster/assets/*.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/cluster"]
+addopts = "-q"
