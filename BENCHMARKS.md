@@ -40,6 +40,20 @@ Two honest takeaways: (1) the split runtime reaches ~55–62% of the physical fl
 (2) bandwidth is destiny — the same 1.7B floor is ~27 tok/s on this base Mac and
 would be ~60 tok/s on a 200 GB/s Mac. You don't engineer past bandwidth.
 
+## ⚠️ These are NOT a head-to-head comparison (yet)
+
+Be clear about what's below. The Somatic row above is **measured** on a small
+model (1.7B) on a modest Mac. The rows below are competitors' **reported** figures
+for **70B on 3 machines** on *different* hardware. **You cannot directly compare
+them** — different models, different machines, different bandwidth.
+
+The only thing that transfers across all of them is the **roofline logic** above
+(memory-bandwidth physics is hardware-agnostic). A *real* comparison requires
+running Somatic **and** a competitor on the **same model and the same machines** —
+that's the next step for this doc (tracked as an open item), not something these
+tables establish. Until then, read the rows below as "what others report," and the
+Somatic row as "what we measured on our rig."
+
 ## The landscape (reported numbers, cited — not measured by us)
 
 Single-stream tok/s on **70B-class** models on comparable consumer hardware,
