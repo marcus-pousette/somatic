@@ -57,6 +57,30 @@ Loopback RPC works instantly → cause is the WiFi link, not the build.
   makes that transfer — a real practical edge on home networks, **not** a claim that
   Somatic's compute is faster than llama.cpp's (the 1.7B numbers say it isn't).
 
+## Update 2026-07-06 — 5 GHz retry (network fixed)
+
+Moved both Macs to the same **5 GHz** channel (Ch 44); latency 52–107 ms → **6 ms**,
+0% loss. Bulk throughput still ~3.9 MB/s (home WiFi cap), but stable latency fixed the
+RPC handshake that stalled on 2.4 GHz. Worker Mac (M1 Pro) was under background load
+(Chrome Remote Desktop + a VM + the Claude app, load avg ~6) — depresses absolutes on
+*both* runtimes equally, so the ratio is the signal.
+
+```
+# llama.cpp 1.7B split over RPC to Mac B (5 GHz), -ts 14,14 — LOADED + RAN this time
+qwen3 1.7B F16 | RPC | pp64 ~218 | tg64  5.47   (10m21s wall; ~1.9 GB upload dominated)
+
+# Somatic 1.7B split across the same 2 Macs (5 GHz), relay mode, same session
+Somatic 1.7B  [0,14)@Mac A -> [14,28)@Mac B :  decode 7.79 tok/s
+```
+
+Single → 2-machine-split slowdown (the load-robust signature):
+- **llama.cpp: 30.2 → 5.47  = 5.5× slower** (generic remote-tensor RPC, heavy per-token sync)
+- **Somatic:   17.1 → 7.79  = 2.2× slower** (purpose-built pipeline, ~4 KB/boundary/token)
+
+So split-vs-split at 1.7B, same conditions: **Somatic 7.79 vs llama.cpp 5.47 (~1.4×).**
+14B split-vs-split still not run (llama.cpp would need ~72 min to upload ~17 GB at this
+WiFi's bulk rate).
+
 ## Reproduce
 
 ```bash

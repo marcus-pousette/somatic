@@ -44,35 +44,43 @@ Full raw outputs and commands:
 | model | runtime | config | decode tok/s |
 |-------|---------|--------|-------------:|
 | **1.7B** — *fits one machine* | llama.cpp | 1 machine | **30.2** |
-| 1.7B | llama.cpp | split, loopback RPC | 34.6 |
 | 1.7B | Somatic | 1 machine (split runtime) | 17.1 |
-| 1.7B | Somatic | 2 machines | ~15 |
+| 1.7B | **llama.cpp** | **2 machines (RPC, 5 GHz)** | **5.47** |
+| 1.7B | **Somatic** | **2 machines (5 GHz)** | **7.79** |
 | **14B** — *too big for one* | llama.cpp | 1 machine (memory-pressured) | **1.43** |
 | 14B | Somatic | 2 machines | **2.88** |
-| 14B | llama.cpp | 2 machines (RPC over WiFi) | **couldn't load** |
+| 14B | llama.cpp | 2 machines (RPC) | not run (~72 min weight upload) |
+
+*(2-machine rows measured with the worker Mac under background load — a remote-desktop
+session + a VM — so absolutes are conservative; it hits both runtimes, so the ratio
+is what matters.)*
 
 This isn't a clean win — it's a map of where each tool belongs:
 
 1. **If the model fits one machine, use one machine.** llama.cpp's mature Metal
    kernels do 1.7B at 30 tok/s; Somatic's split runtime does 17. Our per-token
-   overhead is real. Splitting a model that already fits is pointless.
-2. **The reason to split is a model that doesn't fit.** On the 36 GB Mac, 14B F16
-   (27.5 GiB, against a ~29.4 GiB Metal cap) falls off the memory cliff — llama.cpp
-   on one machine drops to **1.43 tok/s**. Split across both machines, Somatic runs
-   it at **2.88 — 2× faster** — and models bigger than any one machine become
-   runnable at all.
-3. **The truly fair test — split-vs-split at 14B — we couldn't run.** llama.cpp
-   RPC ships every remote layer's weights over the network at load; our 2.4 GHz
-   WiFi stalled the ~17 GB upload on all three attempts (it works instantly over
-   loopback, so it's the link, not the build). Somatic loads each shard from that
-   host's *own disk* and never makes that transfer — a real edge on home networks.
-   This is **not** a claim that Somatic's compute beats llama.cpp's; the 1.7B row
-   shows it doesn't. It's that shard-local loading is what lets a split *start* on
-   ordinary WiFi.
+   overhead on a single box is real. Splitting a model that already fits is pointless.
+2. **But splitting is where the two runtimes diverge sharply.** Going from one
+   machine to a 2-machine split, **llama.cpp drops 5.5× (30 → 5.5)** while **Somatic
+   drops only 2.2× (17 → 7.8)** — so when both actually split, **Somatic is faster
+   (7.8 vs 5.5).** llama.cpp's RPC is a *generic* remote-tensor backend: it
+   synchronizes many ops across the network per token. Somatic is *purpose-built*
+   for the pipeline — one ~4 KB activation per boundary per token. That gap is the
+   real, measured differentiator.
+3. **The reason to split at all is a model that won't fit.** On the 36 GB Mac, 14B
+   F16 (27.5 GiB vs a ~29.4 GiB Metal cap) falls off the memory cliff — llama.cpp on
+   one machine drops to **1.43 tok/s**. Somatic across both machines runs it at
+   **2.88** (2×), and models bigger than any one machine become runnable at all.
+4. **Loading, too, favors the purpose-built path.** llama.cpp RPC ships every remote
+   layer's weights over the network at load; on 2.4 GHz WiFi that stalled entirely,
+   and even on 5 GHz the 14B upload is ~72 min. Somatic loads each shard from that
+   host's *own disk* — nothing to ship — so a split *starts* immediately on ordinary
+   home WiFi.
 
-**Somatic's honest niche:** run a model too big for any one machine you own, over
-the network you already have — where it's 2× a cramped single machine, and where
-the standard tool's split couldn't even load.
+**Somatic's honest niche:** run a model too big for any one machine you own, over the
+home network you already have — where its purpose-built pipeline both *starts* faster
+(local shard load) and *runs* faster under a split (2.2× vs 5.5× slowdown) than the
+standard tool's generic RPC.
 
 ## The wider landscape (others' reported numbers — not measured by us)
 

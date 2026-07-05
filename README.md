@@ -142,9 +142,11 @@ precision — plus the roofline that explains it, in [BENCHMARKS.md](BENCHMARKS.
 The honest short version:
 
 - If a model **fits one machine**, llama.cpp is faster (30 vs 17 tok/s at 1.7B) — use it.
-- When **14B is too big for one machine**, that machine hits the memory-pressure
-  cliff (1.43 tok/s); splitting across two runs it at **2.88 — 2×** — and Somatic's
-  shard-local loading starts over home WiFi where llama.cpp's RPC couldn't even load.
+- But **going to a 2-machine split**, llama.cpp's generic RPC drops 5.5× while Somatic
+  drops 2.2× — so when actually split, Somatic is faster (7.8 vs 5.5 tok/s at 1.7B).
+- When **14B is too big for one machine**, that machine hits the memory-pressure cliff
+  (1.43 tok/s); Somatic across two runs it at **2.88**, and its shard-local loading
+  starts over home WiFi where llama.cpp's weight-shipping RPC stalls.
 
 ```bash
 somatic bench Qwen/Qwen3-14B --host localhost --host you@other-machine
