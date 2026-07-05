@@ -7,6 +7,24 @@ network (Macs, PCs, a home lab), so a model that won't fit on any one of them ru
 across all of them. No machine ever holds the whole model. It serves an
 OpenAI-compatible API, so your existing chat apps just work.
 
+```mermaid
+flowchart LR
+    App([your chat app]) <-->|OpenAI API| Driver
+    subgraph M1 [Machine 1]
+        Driver["driver<br/>embed · norm · lm_head"]
+        W0["worker<br/>layers 0–13<br/><i>KV cache stays here</i>"]
+    end
+    subgraph M2 [Machine 2]
+        W1["worker<br/>layers 14–27<br/><i>KV cache stays here</i>"]
+    end
+    Driver -->|"hidden state<br/>~4 KB / token"| W0
+    W0 -->|"~4 KB / token"| W1
+    W1 -->|"~4 KB / token"| Driver
+```
+
+Each token, only a small hidden-state vector hops from machine to machine — the
+multi-gigabyte KV cache never moves. That's what makes it viable over ordinary WiFi.
+
 ```bash
 somatic provision --host you@other-machine --model Qwen/Qwen3-14B
 somatic run Qwen/Qwen3-14B --host localhost --host you@other-machine
