@@ -31,14 +31,23 @@ We call the single-machine floor the **frontier**. `somatic bench` reports what
 
 | model | config | decode tok/s | frontier | % of frontier |
 |-------|--------|-------------|----------|---------------|
-| Qwen3-1.7B | 1 machine (split runtime) | **17.1** | 27.4 | **62%** |
-| Qwen3-1.7B | 2 machines | ~15 | 27.4 | ~55% |
-| Qwen3-14B (29.5 GB) | 2 Macs — *doesn't fit either alone* | runs (capacity demo) | — | — |
+| Qwen3-1.7B | 1 machine (split runtime) | **17.1** | 27.4 (measured) | **62%** |
+| Qwen3-1.7B | 2 machines, LAN | ~15 | 27.4 (measured) | ~55% |
+| **Qwen3-14B** (29.5 GB) | **2 Macs, WiFi** — *fits neither alone* | **2.88** | ~3.1 (computed) | **~91%** |
 
-Two honest takeaways: (1) the split runtime reaches ~55–62% of the physical floor
-— there's real overhead (transport + head), but it's ~1.5× the floor, not 10×;
-(2) bandwidth is destiny — the same 1.7B floor is ~27 tok/s on this base Mac and
-would be ~60 tok/s on a 200 GB/s Mac. You don't engineer past bandwidth.
+The 14B row is the one that matters — it's a model too big for either machine,
+actually split across two, over ordinary WiFi. Three honest takeaways:
+
+1. **Overhead amortizes with model size.** At 1.7B the split runs at ~1.5× the
+   floor (transport + head are a visible tax on a tiny model). At 14B that tax
+   shrinks to ~9% — because weight-reading time scales with the model while the
+   cross-machine hop stays ~4 KB/token. **The bigger the model — the only case
+   you'd split for — the closer the split runs to the physical limit.**
+2. **Bandwidth is destiny.** The 1.7B floor is ~27 tok/s on this base Mac and
+   would be ~60 tok/s on a 200 GB/s Mac. You don't engineer past bandwidth.
+3. The 14B frontier is *computed* (29.5 GB / ~93 GB/s effective, from the 1.7B
+   measurement) because 29.5 GB won't fit on one 32 GB Mac to time directly —
+   which is exactly why you'd split it.
 
 ## ⚠️ These are NOT a head-to-head comparison (yet)
 
