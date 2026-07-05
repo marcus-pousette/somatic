@@ -64,6 +64,7 @@ class ClusterEngine:
         workers: Sequence[WorkerSpec],
         boundary_strategy: str = "fp16",
         driver_precision: str = "fp32",
+        driver_device: str | None = None,
         num_threads: int = 8,
         local_files_only: bool = True,
     ) -> None:
@@ -73,10 +74,13 @@ class ClusterEngine:
         self.workers = sorted(workers, key=lambda w: w.layer_start)
         self.boundary_strategy = boundary_strategy
         self.driver_precision = driver_precision
+        self.driver_device = driver_device  # None -> auto (mps if available else cpu)
         self.num_threads = num_threads
         self.local_files_only = local_files_only
 
         self._tokenizer = None
+        self._device = "cpu"
+        self._head_dtype = None
         self._embed = None
         self._norm = None
         self._lm_head = None
@@ -104,12 +108,22 @@ class ClusterEngine:
         self._tokenizer = AutoTokenizer.from_pretrained(
             self.model_id, local_files_only=self.local_files_only
         )
+        # Run the head (embed / norm / lm_head) on the GPU when available: the
+        # lm_head is a hidden x vocab matmul done every token, and fp32-on-CPU is
+        # ~20% of per-token latency. MPS/fp32 keeps the numerics, just faster.
+        if self.driver_device is not None:
+            self._device = self.driver_device
+        elif torch.backends.mps.is_available():
+            self._device = "mps"
+        else:
+            self._device = "cpu"
         self._embed, self._norm, self._lm_head, _hidden = load_head_modules_shard(
             model_id=self.model_id,
             precision=self.driver_precision,
-            device="cpu",
+            device=self._device,
             local_files_only=self.local_files_only,
         )
+        self._head_dtype = next(self._lm_head.parameters()).dtype
         self._eos_ids = self._resolve_eos_ids()
         for spec in self.workers:
             client = httpx.AsyncClient(base_url=spec.base_url, timeout=600.0)
@@ -153,16 +167,19 @@ class ClusterEngine:
         from somatic.sequence_model.tensors import TensorPayload
 
         with torch.no_grad():
-            hidden = self._embed(torch.tensor([token_ids])).detach().cpu().float().numpy()
+            ids = torch.tensor([token_ids], device=self._device)
+            hidden = self._embed(ids).detach().to("cpu").float().numpy()
         return TensorPayload.from_numpy(hidden, name="hidden_states")
 
     def _next_token(self, hidden_payload) -> int:
         import torch
 
         with torch.no_grad():
-            final = torch.from_numpy(hidden_payload.to_numpy())
+            final = torch.from_numpy(hidden_payload.to_numpy()).to(
+                self._device, dtype=self._head_dtype
+            )
             logits = self._lm_head(self._norm(final))[:, -1, :].float()
-            return int(torch.argmax(logits, dim=-1)[0])
+            return int(torch.argmax(logits, dim=-1)[0].to("cpu"))
 
     async def generate(
         self,

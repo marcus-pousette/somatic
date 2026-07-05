@@ -3,6 +3,7 @@
 import typer
 
 from somatic.cli.cluster_cmds import (
+    cluster_bench,
     cluster_down,
     cluster_provision,
     cluster_ps,
@@ -20,6 +21,7 @@ app.command("down")(cluster_down)
 app.command("ps")(cluster_ps)
 app.command("verify")(cluster_verify)
 app.command("provision")(cluster_provision)
+app.command("bench")(cluster_bench)
 
 
 if __name__ == "__main__":

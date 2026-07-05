@@ -35,8 +35,8 @@ dev = [
 somatic = "somatic.cli.main:app"
 
 [project.urls]
-Homepage = "https://github.com/somatic-runtime/somatic"
-Repository = "https://github.com/somatic-runtime/somatic"
+Homepage = "https://github.com/marcus-pousette/somatic"
+Repository = "https://github.com/marcus-pousette/somatic"
 
 [tool.hatch.build.targets.wheel]
 packages = ["somatic"]

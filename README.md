@@ -112,9 +112,18 @@ missing, rather than hanging.
 | `somatic provision --host … [--model M]` | set up a machine (code + deps + model cache) |
 | `somatic run M --host a --host b [--expose] [--mode …]` | auto-split and serve |
 | `somatic verify M --host …` | measure each mode's fidelity + wire bytes |
+| `somatic bench M --host …` | reproducible tok/s + % of the memory-bandwidth frontier |
 | `somatic ps` / `somatic down [--sweep]` | list / stop clusters |
 
 Full guide: [docs/cluster/RUN.md](docs/cluster/RUN.md).
+
+## Benchmarks
+
+Reproducible, honest tok/s — and the roofline that explains them — in [BENCHMARKS.md](BENCHMARKS.md). Measure your own cluster:
+
+```bash
+somatic bench Qwen/Qwen3-1.7B --host localhost --host you@other-machine
+```
 
 ## License
 

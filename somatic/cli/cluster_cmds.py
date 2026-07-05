@@ -182,6 +182,50 @@ def parse_hosts_for_provision(tokens: list[str]) -> list[str]:
     return tokens
 
 
+def cluster_bench(
+    model: str = typer.Argument(..., help="Model id (any Llama-family HF model)."),
+    host: list[str] = typer.Option(..., "--host", "-h", help="A machine: 'localhost' or 'user@ip'. Repeat; first is the driver."),
+    mode: str = typer.Option("relay", help="Boundary wire mode to benchmark."),
+    steps: int = typer.Option(40, help="Timed decode steps (after warmup)."),
+    no_frontier: bool = typer.Option(False, "--no-frontier", help="Skip the single-machine floor measurement."),
+    headroom: float = typer.Option(0.80, help="Fraction of each host's free RAM the fit may use."),
+    skip_preflight: bool = typer.Option(False, "--skip-preflight"),
+) -> None:
+    """Report reproducible, honest tok/s for MODEL split across the hosts.
+
+    Times real decoding (warmed-up, synced) and, when the model fits the driver,
+    also the memory-bandwidth frontier so you see how close the split runs to the
+    physical floor. This is the number the rest of the category refuses to publish.
+    """
+
+    from somatic.cluster.bench import benchmark
+    from somatic.cluster.errors import ClusterError
+
+    try:
+        r = benchmark(model, parse_hosts(host), mode=mode, steps=steps,
+                      measure_frontier=not no_frontier, headroom=headroom,
+                      skip_preflight=skip_preflight)
+    except ClusterError as exc:
+        typer.secho(f"\nsomatic ✗ {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(1)
+
+    typer.echo("")
+    typer.secho(f"  model    {r.model}   (mode: {r.mode})", fg=typer.colors.CYAN)
+    typer.echo(f"  split    {r.layout}")
+    typer.echo(f"  method   {r.steps} decode steps, warmed-up, wall-clock, synced")
+    typer.echo("")
+    typer.secho(f"  decode   {r.decode_tok_s:.1f} tok/s   ({r.decode_ms_per_token:.1f} ms/token)", fg=typer.colors.GREEN)
+    typer.echo(f"  prefill  {r.prefill_tok_s:.0f} tok/s")
+    if r.frontier_tok_s is not None:
+        typer.echo("")
+        typer.secho(f"  frontier {r.frontier_tok_s:.1f} tok/s   (single-machine memory-bandwidth floor)", fg=typer.colors.BRIGHT_BLACK)
+        bar = "#" * int(round((r.pct_of_frontier or 0) / 5))
+        typer.secho(f"  ON FRONTIER  {r.pct_of_frontier:.0f}%   [{bar:<20}]", fg=typer.colors.YELLOW)
+        typer.secho("  (splitting gives capacity, not speed — the frontier is one machine's bandwidth)",
+                    fg=typer.colors.BRIGHT_BLACK)
+    typer.echo("")
+
+
 def cluster_ps() -> None:
     """List recorded cluster runs and their workers."""
 
