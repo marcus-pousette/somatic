@@ -81,6 +81,31 @@ So split-vs-split at 1.7B, same conditions: **Somatic 7.79 vs llama.cpp 5.47 (~1
 14B split-vs-split still not run (llama.cpp would need ~72 min to upload ~17 GB at this
 WiFi's bulk rate).
 
+## Update 2026-07-06 — MLX backend measurements
+
+Added an MLX compute backend (each node runs its layers with Apple MLX instead of
+PyTorch/MPS; same pipeline split, bit-exact bf16 boundary). Same rig, bf16:
+
+```
+# single machine (Mac A, M3 Pro), warmed, 2 passes
+MLX 1.7B: 35.05 / 35.34 tok/s          (llama.cpp F16: 30.17; PyTorch backend: 17.1)
+
+# 2-machine split (14|14), 5 GHz — measured across two sessions, different load
+MLX 1.7B split: 19.2–19.5 tok/s (3 runs, lighter load)
+MLX 1.7B split: 12.9–14.0 tok/s (3 runs, heavier load: worker Mac ~load 8)
+# vs same-rig llama.cpp RPC split 5.47, PyTorch-backend split 7.79
+
+# 14B (20|20 split) — RAM-sensitive (each shard wants ~15 GB resident)
+MLX 14B split: 4.12–4.29 tok/s (freer RAM)  /  2.0–3.3 (tight RAM, mmap eviction)
+```
+
+Correctness: the MLX split's greedy tokens are byte-identical to a single-machine
+run (verified at 1.7B; identical code path at 14B). Shard-only loading via
+`mlx_lm.load(lazy=True)` — the 14B worker held ~3 GB resident, not 30. The spread
+across sessions is background load on a lived-in rig (remote-desktop + a VM on the
+worker Mac); every runtime here was measured on the same rig, and same-session
+ratios are the signal. Backend + usage: `docs/cluster/MLX_BACKEND.md`.
+
 ## Reproduce
 
 ```bash

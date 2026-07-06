@@ -118,8 +118,9 @@ missing, rather than hanging.
 
 ## Honest limitations
 
-- **Speed**: usable, not fast — roughly 0.8–2.4 s/token over home WiFi. It's a
-  "run it on the machines you have" tool, not a production inference server.
+- **Speed**: usable, not fast — measured 13–19 tok/s split at 1.7B and 2–4 tok/s at
+  14B over home WiFi (see [BENCHMARKS.md](BENCHMARKS.md); varies with background
+  load). It's a "run it on the machines you have" tool, not a production server.
 - **One request at a time.** Requests are serialized (home cluster, not multi-tenant).
 - **No auth.** `--expose` opens the API to your LAN — only on a network you trust.
 
@@ -141,12 +142,14 @@ A **measured head-to-head vs llama.cpp** — same two Macs, same models, same F1
 precision — plus the roofline that explains it, in [BENCHMARKS.md](BENCHMARKS.md).
 The honest short version:
 
-- If a model **fits one machine**, llama.cpp is faster (30 vs 17 tok/s at 1.7B) — use it.
-- But **going to a 2-machine split**, llama.cpp's generic RPC drops 5.5× while Somatic
-  drops 2.2× — so when actually split, Somatic is faster (7.8 vs 5.5 tok/s at 1.7B).
+- With the **MLX backend** (Apple Silicon, [docs/cluster/MLX_BACKEND.md](docs/cluster/MLX_BACKEND.md)),
+  Somatic measured **faster than llama.cpp both single-machine (35 vs 30 tok/s at 1.7B)
+  and split (13–19 vs 5.5)**. The original PyTorch backend loses single-machine (17 vs 30).
+- **Going to a 2-machine split**, llama.cpp's generic RPC drops 5.5× while Somatic's
+  purpose-built pipeline drops ~2× — the architectural gap, independent of backend.
 - When **14B is too big for one machine**, that machine hits the memory-pressure cliff
-  (1.43 tok/s); Somatic across two runs it at **2.88**, and its shard-local loading
-  starts over home WiFi where llama.cpp's weight-shipping RPC stalls.
+  (1.43 tok/s); Somatic across two decodes it at 2.0–4.3 tok/s, and its shard-local
+  loading starts over home WiFi where llama.cpp's weight-shipping RPC stalls.
 
 ```bash
 somatic bench Qwen/Qwen3-14B --host localhost --host you@other-machine
