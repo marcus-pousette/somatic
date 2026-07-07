@@ -68,7 +68,7 @@ orphaned processes.
 
 ## How it works
 
-- **Driver** (`somatic/serving/mlx_engine.py`, `MLXClusterEngine`): holds embed / norm /
+- **Driver** (`soup/serving/mlx_engine.py`, `MLXClusterEngine`): holds embed / norm /
   lm_head + its own layer range, chains the hidden state through remote workers, samples.
 - **Workers** (`scripts/mlx_split_worker.py`): each holds a contiguous layer range, over a
   length-framed **bit-exact bf16** socket (`TCP_NODELAY`).

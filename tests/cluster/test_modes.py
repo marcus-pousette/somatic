@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from somatic.cluster.supervisor import boundary_strategy_for_mode
-from somatic.cluster.verify import _token_stats
+from soup.cluster.supervisor import boundary_strategy_for_mode
+from soup.cluster.verify import _token_stats
 
 
 def test_mode_mapping() -> None:

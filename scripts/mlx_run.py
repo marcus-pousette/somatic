@@ -5,7 +5,7 @@ to each remote host, launches a worker there over SSH, TCP-health-gates it, then
 runs `MLXClusterEngine` (driver = embed/head + its own layer range; remote workers
 = the rest) and generates. Tears the workers down on exit.
 
-Run it with the MLX env + somatic on PYTHONPATH:
+Run it with the MLX env + soup on PYTHONPATH:
 
     PYTHONPATH=. ~/mlxenv/bin/python scripts/mlx_run.py \
         --model Qwen/Qwen3-14B --local 0:20 \
@@ -30,11 +30,11 @@ import sys
 import time
 from dataclasses import dataclass
 
-from somatic.serving.mlx_engine import MLXClusterEngine, RemoteRange
+from soup.serving.mlx_engine import MLXClusterEngine, RemoteRange
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEPLOY_FILES = [
-    os.path.join(REPO, "somatic", "serving", "mlx_shard.py"),
+    os.path.join(REPO, "soup", "serving", "mlx_shard.py"),
     os.path.join(REPO, "scripts", "mlx_split_worker.py"),
 ]
 
@@ -64,7 +64,7 @@ def ssh_args(identity: str | None) -> list[str]:
 def probe_free_bytes(ssh_target: str, identity: str | None, is_local: bool) -> int:
     """Free RAM on a host via Computer Soup's dependency-free probe snippet (vm_stat on
     macOS). Runs locally for the driver, over SSH (system python3) for a remote."""
-    from somatic.cluster.capacity import _PROBE_SNIPPET
+    from soup.cluster.capacity import _PROBE_SNIPPET
 
     b64 = base64.b64encode(_PROBE_SNIPPET.encode()).decode()
     expr = f"exec(__import__('base64').b64decode('{b64}').decode())"  # one token, no spaces
@@ -89,8 +89,8 @@ def auto_fit(model: str, host_specs: list[str], identity: str | None, headroom: 
     2× the room holds 2× the layers, rather than the first machine hogging them
     and hitting its own memory cliff. Driver = localhost (holds head + its range).
     Reuses Computer Soup's tested `model_footprint`. Returns (workers, driver_range)."""
-    from somatic.cluster.footprint import model_footprint
-    from somatic.cluster.hosts import Host
+    from soup.cluster.footprint import model_footprint
+    from soup.cluster.hosts import Host
 
     overhead = int(1.5 * 1024 ** 3)  # torch/MLX + activations + KV headroom per host
     fp = model_footprint(model, precision="bf16", local_files_only=True)
@@ -195,7 +195,7 @@ def main() -> None:
     ap.add_argument("--serve-port", type=int, default=8000)
     args = ap.parse_args()
 
-    from somatic.cluster.hosts import validate_model_id
+    from soup.cluster.hosts import validate_model_id
 
     validate_model_id(args.model)  # it flows into remote shell commands
 
@@ -252,8 +252,8 @@ def main() -> None:
 def _serve(engine: MLXClusterEngine, args) -> None:
     import uvicorn
 
-    from somatic.cluster.server import build_cluster_app
-    from somatic.serving.mlx_engine import AsyncMLXEngine
+    from soup.cluster.server import build_cluster_app
+    from soup.serving.mlx_engine import AsyncMLXEngine
 
     async_engine = AsyncMLXEngine(engine)  # app startup calls .start() (connects sockets)
     status = {

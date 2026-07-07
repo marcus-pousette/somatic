@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from somatic.cluster.hosts import safe_run_id, validate_model_id
+from soup.cluster.hosts import safe_run_id, validate_model_id
 
 
 def test_safe_run_id_strips_shell_metacharacters() -> None:

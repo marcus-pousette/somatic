@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import somatic.cluster.runstate as runstate
-from somatic.cluster.runstate import RunRecord, WorkerRecord
+import soup.cluster.runstate as runstate
+from soup.cluster.runstate import RunRecord, WorkerRecord
 
 
 def _rewire_state_root(tmp_path, monkeypatch):

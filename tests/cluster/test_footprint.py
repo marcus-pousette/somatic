@@ -6,7 +6,7 @@ import json
 import struct
 from pathlib import Path
 
-from somatic.cluster.footprint import footprint_from_dir
+from soup.cluster.footprint import footprint_from_dir
 
 
 def _write_safetensors(path: Path, tensors: dict[str, tuple[str, int]]) -> None:

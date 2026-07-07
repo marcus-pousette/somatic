@@ -59,16 +59,16 @@ def main() -> int:
     torch.set_num_threads(max(int(args.num_threads), 1))
     import uvicorn
 
-    from somatic.sequence_model.interfaces import ResourceProfile
-    from somatic.sequence_model.qwen_real import QwenWorkerLayerRuntime
-    from somatic.servers.sequence_worker import create_app
+    from soup.sequence_model.interfaces import ResourceProfile
+    from soup.sequence_model.qwen_real import QwenWorkerLayerRuntime
+    from soup.servers.sequence_worker import create_app
 
     head_norm = None
     lm_head = None
     if args.head:
         from transformers import AutoConfig, AutoModelForCausalLM
 
-        from somatic.sequence_model.qwen_real import (
+        from soup.sequence_model.qwen_real import (
             QwenLayerRange,
             QwenShardManifest,
             _qwen_backbone,
@@ -139,7 +139,7 @@ def main() -> int:
         )
     learned_int8_codec = None
     if args.learned_codec_artifact or args.learned_codec_results:
-        from somatic.sequence_model.boundary_compression.wire_codec_runtime import (
+        from soup.sequence_model.boundary_compression.wire_codec_runtime import (
             load_learned_int8_wire_codec,
             load_learned_int8_wire_codec_from_artifact,
         )
@@ -181,7 +181,7 @@ def main() -> int:
         import threading
 
         import numpy as np
-        from somatic.sequence_model.boundary_compression.wire_codec_runtime import (
+        from soup.sequence_model.boundary_compression.wire_codec_runtime import (
             decode_boundary_wire_payload,
         )
 

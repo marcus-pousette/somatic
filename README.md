@@ -80,14 +80,14 @@ client.chat.completions.create(model="Qwen/Qwen3-1.7B",
 Or use the Python SDK directly:
 
 ```python
-from somatic import Cluster
+from soup import Cluster
 with Cluster.launch("Qwen/Qwen3-1.7B", ["localhost", "you@other-machine"]) as c:
     print(c.chat("Explain layer-split inference in one line."))
     for delta in c.stream("Now in French."):
         print(delta, end="", flush=True)
 ```
 
-*(The package installs as `computer-soup`; the Python import name is `somatic`.)*
+*(The package installs as `computer-soup` and imports as `soup`.)*
 
 ## Boundary modes — and prove the tradeoff yourself
 

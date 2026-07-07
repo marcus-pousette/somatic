@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from somatic.cluster.ssh import shell_quote_path
-from somatic.cluster.provision import _hf_cache_dirname
+from soup.cluster.ssh import shell_quote_path
+from soup.cluster.provision import _hf_cache_dirname
 
 
 def test_tilde_preserved_when_no_special_chars() -> None:
-    assert shell_quote_path("~/somatic") == "~/somatic"
+    assert shell_quote_path("~/soup") == "~/soup"
     assert shell_quote_path("~/.local/bin/uv") == "~/.local/bin/uv"
     assert shell_quote_path("~") == "~"
 

@@ -32,16 +32,16 @@ dev = [
 ]
 
 [project.scripts]
-soup = "somatic.cli.main:app"
-somatic = "somatic.cli.main:app"
+soup = "soup.cli.main:app"
+somatic = "soup.cli.main:app"
 
 [project.urls]
 Homepage = "https://github.com/marcus-pousette/computer-soup"
 Repository = "https://github.com/marcus-pousette/computer-soup"
 
 [tool.hatch.build.targets.wheel]
-packages = ["somatic"]
-artifacts = ["somatic/cluster/assets/*.html"]
+packages = ["soup"]
+artifacts = ["soup/cluster/assets/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/cluster"]

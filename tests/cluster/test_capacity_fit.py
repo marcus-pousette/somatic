@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from somatic.cluster.capacity import DRIVER_RUNTIME_OVERHEAD, GIB, fit_ranges
-from somatic.cluster.errors import (
+from soup.cluster.capacity import DRIVER_RUNTIME_OVERHEAD, GIB, fit_ranges
+from soup.cluster.errors import (
     InsufficientCapacityError,
     InvalidLayerRangeError,
     LayerTooLargeError,
 )
-from somatic.cluster.footprint import ModelFootprint
-from somatic.cluster.hosts import Host
+from soup.cluster.footprint import ModelFootprint
+from soup.cluster.hosts import Host
 
 
 def _footprint(layers: int, layer_gib: float, head_gib: float) -> ModelFootprint:

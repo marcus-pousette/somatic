@@ -1,7 +1,7 @@
 """MLX split worker — holds a contiguous layer range [start, end) and runs it.
 
 Deployed to each machine alongside ``mlx_shard.py`` (both need only ``mlx``/
-``mlx_lm`` + numpy — no torch, no full somatic install). The driver
+``mlx_lm`` + numpy — no torch, no full soup install). The driver
 (`MLXClusterEngine`) chains hidden states through one of these per machine.
 
     python mlx_split_worker.py --model Qwen/Qwen3-14B --start 20 --end 40 --port 5599
@@ -18,7 +18,7 @@ import os
 import socket
 import sys
 
-# mlx_shard.py is deployed next to this script (mlx-only, no somatic dependency).
+# mlx_shard.py is deployed next to this script (mlx-only, no soup dependency).
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mlx_shard as ms  # noqa: E402
 

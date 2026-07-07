@@ -20,7 +20,7 @@ class _FakeEngine:
 def _client():
     from fastapi.testclient import TestClient
 
-    from somatic.serving.openai_app import build_openai_app
+    from soup.serving.openai_app import build_openai_app
 
     app = build_openai_app(_FakeEngine(), served_model_name="test/model")
     return TestClient(app)
@@ -70,7 +70,7 @@ def test_legacy_completions_endpoint() -> None:
 
 
 def test_lan_ip_returns_a_string() -> None:
-    from somatic.cluster.launcher import _lan_ip
+    from soup.cluster.launcher import _lan_ip
 
     ip = _lan_ip()
     assert isinstance(ip, str) and ip.count(".") == 3

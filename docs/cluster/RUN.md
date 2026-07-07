@@ -43,7 +43,7 @@ page — add `--expose` and see [CONNECT_A_UI.md](CONNECT_A_UI.md).
 The CLI is a thin skin over a Python API:
 
 ```python
-from somatic import Cluster
+from soup import Cluster
 
 with Cluster.launch("Qwen/Qwen3-1.7B",
                     ["localhost", "user@other-machine"]) as c:

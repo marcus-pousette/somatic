@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from somatic.cluster.provision import _driver_main_revision
+from soup.cluster.provision import _driver_main_revision
 
 HASH = "70d244cc86ccca08cf5af4e1e306ecf908b1ad5e"
 OTHER = "aaaabbbbccccddddeeeeffff0000111122223333"

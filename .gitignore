@@ -13,9 +13,9 @@ venv/
 .mypy_cache/
 .ruff_cache/
 
-# Somatic runtime state
-.somatic/
-~/.somatic/
+# Computer Soup runtime state
+.soup/
+~/.soup/
 
 # OS
 .DS_Store
