@@ -219,7 +219,7 @@ def create_app(
     adapter = SimulatedRuntimeAdapter()
     tensor_adapter = TensorRuntimeAdapter()
     resolved_qwen_adapter = qwen_adapter or TransformersQwenAdapter()
-    app = FastAPI(title=f"Somatic sequence worker {resolved_profile.runtime_id}")
+    app = FastAPI(title=f"Computer Soup sequence worker {resolved_profile.runtime_id}")
     resolved_audit_log_path = Path(audit_log_path) if audit_log_path is not None else None
     shard_id = qwen_shard_runtime.shard.manifest.shard_id if qwen_shard_runtime is not None else None
     resolved_peer_class = _peer_class_for_profile(resolved_profile)

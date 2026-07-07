@@ -1,4 +1,4 @@
-"""Shared security contracts for Somatic worker admission."""
+"""Shared security contracts for Computer Soup worker admission."""
 
 from somatic.security.public_worker import (
     PUBLIC_WORKER_SECURITY_DECISION_SCHEMA_VERSION,

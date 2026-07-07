@@ -209,7 +209,7 @@ class Cluster:
 
 
 def teardown_run(run_id: str | None = None, *, sweep_hosts: list["Host | str"] | None = None) -> str | None:
-    """Tear down a run by id (or the latest). Used by `somatic down`."""
+    """Tear down a run by id (or the latest). Used by `soup down`."""
 
     from somatic.cluster import ssh
 

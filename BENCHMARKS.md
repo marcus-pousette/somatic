@@ -5,7 +5,7 @@ single-stream tok/s at all.** This page does — and explains, with the roofline
 *why the numbers are what they are*. Run it yourself:
 
 ```bash
-somatic bench Qwen/Qwen3-1.7B --host localhost --host you@other-machine
+soup bench Qwen/Qwen3-1.7B --host localhost --host you@other-machine
 ```
 
 ## The one physics fact that governs everything
@@ -30,10 +30,10 @@ thrashes against its working-set cap and decode craters far below the bandwidth
 floor. That's the regime where splitting wins on *speed*, not just capacity — and
 it's measured below (14B: one cramped machine 1.43 tok/s, split across two 2.88).
 
-We call the single-machine bandwidth floor the **frontier**. `somatic bench`
+We call the single-machine bandwidth floor the **frontier**. `soup bench`
 reports what % of it your split achieves.
 
-## Measured head-to-head — Somatic vs llama.cpp, on one real rig
+## Measured head-to-head — Computer Soup vs llama.cpp, on one real rig
 
 The first apples-to-apples comparison: **same models, same two machines, same
 precision (F16, 2 bytes/weight), same warmed + synced method**, both runtimes.
@@ -43,14 +43,14 @@ Full raw outputs and commands:
 
 | model | runtime | config | decode tok/s |
 |-------|---------|--------|-------------:|
-| **1.7B** — *fits one machine* | **Somatic (MLX backend)** | 1 machine | **35.2** |
+| **1.7B** — *fits one machine* | **Computer Soup (MLX backend)** | 1 machine | **35.2** |
 | 1.7B | llama.cpp | 1 machine | 30.2 |
-| 1.7B | Somatic (PyTorch backend) | 1 machine (split runtime) | 17.1 |
-| 1.7B | **Somatic (MLX backend)** | **2 machines (5 GHz)** | **13–19** |
-| 1.7B | Somatic (PyTorch backend) | 2 machines (5 GHz) | 7.79 |
+| 1.7B | Computer Soup (PyTorch backend) | 1 machine (split runtime) | 17.1 |
+| 1.7B | **Computer Soup (MLX backend)** | **2 machines (5 GHz)** | **13–19** |
+| 1.7B | Computer Soup (PyTorch backend) | 2 machines (5 GHz) | 7.79 |
 | 1.7B | llama.cpp | 2 machines (RPC, 5 GHz) | 5.47 |
-| **14B** — *too big for one* | **Somatic (MLX backend)** | **2 machines** | **2.0–4.3** |
-| 14B | Somatic (PyTorch backend) | 2 machines | 2.88 |
+| **14B** — *too big for one* | **Computer Soup (MLX backend)** | **2 machines** | **2.0–4.3** |
+| 14B | Computer Soup (PyTorch backend) | 2 machines | 2.88 |
 | 14B | llama.cpp | 1 machine (memory-pressured) | 1.43 |
 | 14B | llama.cpp | 2 machines (RPC) | not run (~72 min weight upload) |
 
@@ -64,16 +64,16 @@ the low end.)*
 
 What the table shows:
 
-1. **The compute engine matters as much as the split.** Somatic's original PyTorch/MPS
+1. **The compute engine matters as much as the split.** Computer Soup's original PyTorch/MPS
    backend loses to llama.cpp single-machine (17 vs 30) — its per-token overhead is
    real. The **MLX backend** ([docs/cluster/MLX_BACKEND.md](docs/cluster/MLX_BACKEND.md),
    Apple Silicon) removes it: **35 tok/s single-machine, faster than llama.cpp** — MLX
    runs at the memory-bandwidth floor.
 2. **Splitting is where the architectures diverge sharply.** Going from one machine to
-   a 2-machine split, **llama.cpp drops 5.5× (30 → 5.5)** while Somatic's pipeline
+   a 2-machine split, **llama.cpp drops 5.5× (30 → 5.5)** while Computer Soup's pipeline
    drops ~2× (MLX: 35 → 13–19; PyTorch: 17 → 7.8). llama.cpp's RPC is a *generic*
    remote-tensor backend that synchronizes many ops across the network per token;
-   Somatic is *purpose-built* — one ~4 KB activation per boundary per token. Split
+   Computer Soup is *purpose-built* — one ~4 KB activation per boundary per token. Split
    for split, the MLX backend's **worst** measured run beat llama.cpp's RPC 2.4×.
 3. **The reason to split at all is a model that won't fit.** On the 36 GB Mac, 14B
    F16 (27.5 GiB vs a ~29.4 GiB Metal cap) falls off the memory cliff — llama.cpp on
@@ -82,12 +82,12 @@ What the table shows:
    one machine become runnable at all.
 4. **Loading, too, favors the purpose-built path.** llama.cpp RPC ships every remote
    layer's weights over the network at load; on 2.4 GHz WiFi that stalled entirely,
-   and even on 5 GHz the 14B upload is ~72 min. Somatic loads each shard from that
+   and even on 5 GHz the 14B upload is ~72 min. Computer Soup loads each shard from that
    host's *own disk* — nothing to ship — so a split *starts* immediately on ordinary
    home WiFi. (The MLX backend's lazy shard load means a 14B worker holds ~3 GB
    resident, not 30.)
 
-**Somatic's honest niche:** run a model too big for any one machine you own, over the
+**Computer Soup's honest niche:** run a model too big for any one machine you own, over the
 home network you already have — where it starts faster (local shard load), runs faster
 under a split (~2× vs 5.5× slowdown), and with the MLX backend is the fastest thing
 we measured on Apple Silicon, single-machine or split.
@@ -118,7 +118,7 @@ for context; treat as indicative, not comparable to our rig.
 
 ## What to conclude
 
-- **Somatic isn't the fastest runtime.** On anything that fits one machine, a
+- **Computer Soup isn't the fastest runtime.** On anything that fits one machine, a
   mature single-machine engine beats it — measured, 30 vs 17 tok/s at 1.7B. It
   doesn't try to be.
 - **Its value shows up exactly when a model won't fit one machine:** the split ran
@@ -130,5 +130,5 @@ for context; treat as indicative, not comparable to our rig.
   which the rest of the category mostly doesn't provide.
 
 *Numbers here are wall-clock, warmed-up, and synced (MPS/CUDA are asynchronous;
-un-synced timers under-report). Re-run `somatic bench` on your own hardware —
+un-synced timers under-report). Re-run `soup bench` on your own hardware —
 that's the whole point.*

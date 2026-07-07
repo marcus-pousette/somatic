@@ -1,6 +1,6 @@
 """One command to run an MLX split cluster: deploy → launch workers → drive.
 
-The MLX backend counterpart to `somatic run`. It deploys the two mlx-only files
+The MLX backend counterpart to `soup run`. It deploys the two mlx-only files
 to each remote host, launches a worker there over SSH, TCP-health-gates it, then
 runs `MLXClusterEngine` (driver = embed/head + its own layer range; remote workers
 = the rest) and generates. Tears the workers down on exit.
@@ -62,7 +62,7 @@ def ssh_args(identity: str | None) -> list[str]:
 
 
 def probe_free_bytes(ssh_target: str, identity: str | None, is_local: bool) -> int:
-    """Free RAM on a host via Somatic's dependency-free probe snippet (vm_stat on
+    """Free RAM on a host via Computer Soup's dependency-free probe snippet (vm_stat on
     macOS). Runs locally for the driver, over SSH (system python3) for a remote."""
     from somatic.cluster.capacity import _PROBE_SNIPPET
 
@@ -88,7 +88,7 @@ def auto_fit(model: str, host_specs: list[str], identity: str | None, headroom: 
     capacity* (not greedy-fill) so the pipeline stays balanced — a machine with
     2× the room holds 2× the layers, rather than the first machine hogging them
     and hitting its own memory cliff. Driver = localhost (holds head + its range).
-    Reuses Somatic's tested `model_footprint`. Returns (workers, driver_range)."""
+    Reuses Computer Soup's tested `model_footprint`. Returns (workers, driver_range)."""
     from somatic.cluster.footprint import model_footprint
     from somatic.cluster.hosts import Host
 
@@ -200,13 +200,13 @@ def main() -> None:
     validate_model_id(args.model)  # it flows into remote shell commands
 
     if args.host:  # auto-fit by free RAM
-        print(f"somatic-mlx ▸ {args.model}  auto-fit across driver + {len(args.host)} host(s)")
+        print(f"soup-mlx ▸ {args.model}  auto-fit across driver + {len(args.host)} host(s)")
         workers, (ls, le) = auto_fit(args.model, args.host, args.identity, args.headroom)
     else:  # manual ranges
         workers = [parse_worker(s) for s in args.worker]
         ls, le = (int(x) for x in args.local.split(":"))
 
-    print(f"somatic-mlx ▸ {args.model}  driver[{ls},{le}) + {len(workers)} worker(s)")
+    print(f"soup-mlx ▸ {args.model}  driver[{ls},{le}) + {len(workers)} worker(s)")
     for w in workers:
         deploy_and_launch(w, args.model, args.identity, args.remote_python)
     # Guarantee the remote workers are killed however we exit — a returning
@@ -218,7 +218,7 @@ def main() -> None:
             return
         _torn_down["done"] = True
         teardown(workers, args.identity)
-        print("somatic-mlx ▸ workers stopped.", flush=True)
+        print("soup-mlx ▸ workers stopped.", flush=True)
 
     atexit.register(_teardown_once)
     for w in workers:
@@ -236,14 +236,14 @@ def main() -> None:
             _serve(engine, args)
         else:
             engine.start()
-            print("somatic-mlx ▸ layout:", engine.layout, flush=True)
+            print("soup-mlx ▸ layout:", engine.layout, flush=True)
             messages = [{"role": "user", "content": args.prompt}]
             engine.generate_ids(messages, max_new_tokens=6)  # warm
             t0 = time.perf_counter()
             ids = engine.generate_ids(messages, max_new_tokens=args.max_tokens)
             dt = time.perf_counter() - t0
-            print(f"somatic-mlx ▸ {len(ids)} tokens in {dt:.2f}s = {len(ids)/dt:.2f} tok/s")
-            print("somatic-mlx ▸", repr(engine.shard.tokenizer.decode(ids[:40])))
+            print(f"soup-mlx ▸ {len(ids)} tokens in {dt:.2f}s = {len(ids)/dt:.2f} tok/s")
+            print("soup-mlx ▸", repr(engine.shard.tokenizer.decode(ids[:40])))
             engine.close()
     finally:
         _teardown_once()
@@ -264,7 +264,7 @@ def _serve(engine: MLXClusterEngine, args) -> None:
     }
     app = build_cluster_app(async_engine, model_name=args.model, status=status)
     base = f"http://{args.serve_host}:{args.serve_port}"
-    print(f"somatic-mlx ▸ serving  chat {base}/   api {base}/v1   (Ctrl-C to stop)", flush=True)
+    print(f"soup-mlx ▸ serving  chat {base}/   api {base}/v1   (Ctrl-C to stop)", flush=True)
     uvicorn.run(app, host=args.serve_host, port=args.serve_port, log_level="warning")
 
 

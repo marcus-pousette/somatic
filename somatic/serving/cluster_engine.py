@@ -192,7 +192,7 @@ class ClusterEngine:
         """Generate a reply for a full chat `messages` list (decoded text).
 
         `boundary_strategy` overrides the wire codec for this call (used by
-        `somatic verify` to compare modes on the same workers). If `on_token` is
+        `soup verify` to compare modes on the same workers). If `on_token` is
         given it receives each incremental text delta as tokens are produced.
         """
 
@@ -213,7 +213,7 @@ class ClusterEngine:
         boundary_strategy: str | None = None,
     ) -> list[int]:
         """Generate and return the raw (visible) token ids — the exact sequence
-        `somatic verify` compares across boundary strategies."""
+        `soup verify` compares across boundary strategies."""
 
         strategy = boundary_strategy or self.boundary_strategy
         async with self._lock:

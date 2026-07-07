@@ -7,7 +7,7 @@ split across machines. Same idea as the main product — a model too big for one
 machine, split across the machines you have — just a faster engine.
 
 Status: **lab-stage, Apple-only.** It's a separate command (`mlx_run.py`), not yet
-folded into `somatic run` (the CLI runs in a Python without MLX). See caveats below.
+folded into `soup run` (the CLI runs in a Python without MLX). See caveats below.
 
 ## Measured (2 Macs — M3 Pro 36 GB + M1 Pro 32 GB, 5 GHz WiFi, bf16)
 
@@ -80,7 +80,7 @@ orphaned processes.
 ## Caveats
 
 - **Apple-only.** MLX is Apple Silicon; CUDA machines would need a different fast backend.
-- **Not in `somatic run` yet.** The `somatic` CLI runs in a Python that can't load MLX, so
+- **Not in `soup run` yet.** The `soup` CLI runs in a Python that can't load MLX, so
   this is a separate `mlx_run.py` for now.
 - **Not yet: disk-shard loading.** Each node currently needs the full model files on disk
   (only its layers ever load into RAM). `mlx_lm.pipeline_load` can fetch only a node's shards

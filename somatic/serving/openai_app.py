@@ -16,7 +16,7 @@ def build_openai_app(engine, *, served_model_name: str):
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import JSONResponse, StreamingResponse
 
-    app = FastAPI(title="somatic split-model server")
+    app = FastAPI(title="Computer Soup split-model server")
     app.state.engine = engine
     app.state.served_model_name = served_model_name
 
@@ -48,7 +48,7 @@ def build_openai_app(engine, *, served_model_name: str):
         return {
             "object": "list",
             "data": [
-                {"id": served_model_name, "object": "model", "owned_by": "somatic-cluster"}
+                {"id": served_model_name, "object": "model", "owned_by": "computer-soup"}
             ],
         }
 

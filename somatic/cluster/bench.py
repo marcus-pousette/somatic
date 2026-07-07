@@ -1,4 +1,4 @@
-"""`somatic bench` — a reproducible, honest throughput number for a split model.
+"""`soup bench` — a reproducible, honest throughput number for a split model.
 
 Most distributed-inference tools publish no single-stream tok/s at all. This one
 does: it times real decoding across your cluster and, when the model fits on the

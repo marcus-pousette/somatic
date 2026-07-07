@@ -1,6 +1,6 @@
 # Run a model split across your machines
 
-Somatic runs an LLM that's too big for one machine by splitting its transformer
+Computer Soup runs an LLM that's too big for one machine by splitting its transformer
 layers across the machines you have, and serving it behind an OpenAI-compatible
 API with a built-in chat page. No machine ever holds the whole model.
 
@@ -9,10 +9,10 @@ API with a built-in chat page. No machine ever holds the whole model.
 On the machine you'll drive from (the "driver"):
 
 ```bash
-somatic run Qwen/Qwen3-1.7B --host localhost --host user@other-machine
+soup run Qwen/Qwen3-1.7B --host localhost --host user@other-machine
 ```
 
-That's it. Somatic will:
+That's it. Computer Soup will:
 
 1. **read the model** — exact per-layer and head bytes from the safetensors headers (no weights downloaded just to plan);
 2. **probe each machine's free RAM**;
@@ -21,20 +21,20 @@ That's it. Somatic will:
 5. **serve** an OpenAI API + a chat page on the driver.
 
 ```
-somatic ▸ Qwen/Qwen3-1.7B  28 layers · 0.094 GiB/layer · head 0.58 GiB (bf16)
-somatic ▸ free RAM   localhost: 18.1 GiB   other-machine: 24.1 GiB
-somatic ▸ plan       localhost [0,10)   other-machine [10,28)
-somatic ▸ ready.  chat http://127.0.0.1:8000/   api http://127.0.0.1:8000/v1
+soup ▸ Qwen/Qwen3-1.7B  28 layers · 0.094 GiB/layer · head 0.58 GiB (bf16)
+soup ▸ free RAM   localhost: 18.1 GiB   other-machine: 24.1 GiB
+soup ▸ plan       localhost [0,10)   other-machine [10,28)
+soup ▸ ready.  chat http://127.0.0.1:8000/   api http://127.0.0.1:8000/v1
 ```
 
 Open `http://127.0.0.1:8000/` and start typing, or point any OpenAI client at
-`http://127.0.0.1:8000/v1`. Stop it with `somatic down`.
+`http://127.0.0.1:8000/v1`. Stop it with `soup down`.
 
-**Prefer your own chat app?** Somatic's API is OpenAI-compatible, so you can use
+**Prefer your own chat app?** Computer Soup's API is OpenAI-compatible, so you can use
 Open WebUI, LibreChat, Chatbox, the `openai` SDK, etc. instead of the built-in
 page — add `--expose` and see [CONNECT_A_UI.md](CONNECT_A_UI.md).
 
-> A model that fits on the first machine stays there — Somatic only splits when
+> A model that fits on the first machine stays there — Computer Soup only splits when
 > it must, because a split adds network hops. To force a split (or place layers
 > yourself), pin ranges: `--host localhost:0-14 --host user@other:14-28`.
 
@@ -68,13 +68,13 @@ covers Llama, Qwen, Mistral, Gemma, Phi, DeepSeek, Yi, SmolLM, and most popular
 open models. GPT-2 (`transformer.h`), GPT-NeoX (`gpt_neox.layers`), and Mamba
 (state-space) are not yet supported.
 
-## Setting up the machines: `somatic provision`
+## Setting up the machines: `soup provision`
 
 Each machine needs this repo, a Python env with the deps, and the model in its
 Hugging Face cache. One command sets all of that up:
 
 ```bash
-somatic provision --host user@other-machine --model Qwen/Qwen3-1.7B
+soup provision --host user@other-machine --model Qwen/Qwen3-1.7B
 ```
 
 This pushes the current code, ensures the deps (`uv sync` if needed), and warms
@@ -83,7 +83,7 @@ fast "ready ✓". For a machine with slow or no internet, copy the model straigh
 from this one instead of downloading it there:
 
 ```bash
-somatic provision --host user@other-machine --model Qwen/Qwen3-1.7B --push-model
+soup provision --host user@other-machine --model Qwen/Qwen3-1.7B --push-model
 ```
 
 (`--push-model` rsyncs the model from your machine's cache and repairs the
@@ -91,7 +91,7 @@ somatic provision --host user@other-machine --model Qwen/Qwen3-1.7B --push-model
 the dependency step (code + model only).
 
 SSH to remote machines must be key-based and non-interactive. After provisioning,
-`somatic run` runs a **preflight** and still refuses with an actionable message if
+`soup run` runs a **preflight** and still refuses with an actionable message if
 anything is missing — a far better failure than a silent hang.
 
 ## Flags
@@ -106,9 +106,9 @@ anything is missing — a far better failure than a silent hang.
 | `--plan-only` | | print the split and exit; launch nothing. |
 | `--mode` | `relay` | boundary wire: `relay` / `exact` / `compact` (see below). |
 
-Manage runs with `somatic ps` (list) and `somatic down [--sweep]` (stop / nuke orphans).
+Manage runs with `soup ps` (list) and `soup down [--sweep]` (stop / nuke orphans).
 
-## Boundary modes and `somatic verify`
+## Boundary modes and `soup verify`
 
 Workers exchange hidden states over the network. `--mode` picks how those are put
 on the wire — all three are **model-general** (no per-model training):
@@ -126,7 +126,7 @@ running the whole model on one machine — the differentiator, with no quality l
 **Don't guess — measure it for your model:**
 
 ```bash
-somatic verify Qwen/Qwen3-1.7B --host localhost --host user@other-machine
+soup verify Qwen/Qwen3-1.7B --host localhost --host user@other-machine
 ```
 
 ```

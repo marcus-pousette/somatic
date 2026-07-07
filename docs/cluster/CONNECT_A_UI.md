@@ -1,17 +1,17 @@
-# Use Somatic with an existing chat UI
+# Use Computer Soup with an existing chat UI
 
-Somatic serves an **OpenAI-compatible API**, so you don't need its built-in chat
+Computer Soup serves an **OpenAI-compatible API**, so you don't need its built-in chat
 page — point any app that speaks the OpenAI protocol at your split model and use
 the UI you already like. The built-in page at `/` is just a zero-setup fallback.
 
 ## 1. Start the cluster, exposed to your network
 
 ```bash
-somatic run Qwen/Qwen3-1.7B --host localhost --host user@other-mac --expose
+soup run Qwen/Qwen3-1.7B --host localhost --host user@other-mac --expose
 ```
 
 `--expose` binds the API to `0.0.0.0` so an app on another device (or in a Docker
-container) can reach it. Somatic prints the address to use:
+container) can reach it. Computer Soup prints the address to use:
 
 ```
   chat UI        http://192.168.1.42:8000/
@@ -33,7 +33,7 @@ non-empty key if the app insists on one.
 | **Open WebUI** | Settings → Connections → OpenAI API: Base URL `http://<driver-ip>:8000/v1`, any API key. |
 | **LibreChat** | In `librechat.yaml` / env: a custom endpoint with `baseURL: http://<driver-ip>:8000/v1`. |
 | **Chatbox / Jan / BoltAI** | Add an "OpenAI-compatible" / custom provider, API host `http://<driver-ip>:8000/v1`, any key. |
-| **`openai` SDK** | `OpenAI(base_url="http://<driver-ip>:8000/v1", api_key="somatic")` |
+| **`openai` SDK** | `OpenAI(base_url="http://<driver-ip>:8000/v1", api_key="soup")` |
 | **`curl`** | `curl http://<driver-ip>:8000/v1/chat/completions -d '{"model":"<id>","messages":[...]}'` |
 
 The model shows up under its Hugging Face id (e.g. `Qwen/Qwen3-1.7B`) via
@@ -52,7 +52,7 @@ The model shows up under its Hugging Face id (e.g. `Qwen/Qwen3-1.7B`) via
 ```python
 from openai import OpenAI
 
-client = OpenAI(base_url="http://192.168.1.42:8000/v1", api_key="somatic")
+client = OpenAI(base_url="http://192.168.1.42:8000/v1", api_key="soup")
 stream = client.chat.completions.create(
     model="Qwen/Qwen3-1.7B",
     messages=[{"role": "user", "content": "Explain layer-split inference."}],
@@ -64,7 +64,7 @@ for chunk in stream:
 
 ## Notes
 
-- **One generation at a time.** Somatic serves a home cluster, not a multi-tenant
+- **One generation at a time.** Computer Soup serves a home cluster, not a multi-tenant
   gateway — concurrent requests are serialised. A UI that fires several requests
   at once will see them run one after another.
 - **No auth.** Anyone who can reach the address can use it. Only `--expose` on a

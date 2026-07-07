@@ -1,4 +1,4 @@
-"""Somatic CLI — run an LLM too big for one machine, split across your machines."""
+"""Computer Soup CLI — run an LLM too big for one machine, split across your machines."""
 
 import typer
 
@@ -17,6 +17,7 @@ app = typer.Typer(
 )
 
 app.command("run")(cluster_run)
+app.command("up", help="Alias of `run` — soup up your machines.")(cluster_run)
 app.command("down")(cluster_down)
 app.command("ps")(cluster_ps)
 app.command("verify")(cluster_verify)

@@ -27,7 +27,7 @@ GIB = 1024 ** 3
 
 def _log(quiet: bool, msg: str) -> None:
     if not quiet:
-        print(f"somatic ▸ {msg}", flush=True)
+        print(f"soup ▸ {msg}", flush=True)
 
 
 # Product modes map to a boundary wire strategy the worker already understands.
@@ -109,12 +109,12 @@ class Supervisor:
         plan = self.bring_up_workers(hosts, headroom=headroom, skip_preflight=skip_preflight)
         self._start_server(plan)
         _log(self.quiet, f"ready.  chat http://{self.serve_host}:{self.serve_port}/   api http://{self.serve_host}:{self.serve_port}/v1")
-        _log(self.quiet, "stop:  somatic down")
+        _log(self.quiet, "stop:  soup down")
         return plan
 
     def bring_up_workers(self, hosts: list[Host], *, headroom: float = 0.80, skip_preflight: bool = False) -> LaunchPlan:
         """Preflight → probe → fit → spawn → health-gate, WITHOUT starting the
-        server. Used by `launch` (which then serves) and by `somatic verify`
+        server. Used by `launch` (which then serves) and by `soup verify`
         (which drives the engine directly). Tears down on any failure."""
 
         if not skip_preflight:

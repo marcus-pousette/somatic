@@ -3,13 +3,13 @@ requires = ["hatchling>=1.25"]
 build-backend = "hatchling.build"
 
 [project]
-name = "somaticml"
+name = "computer-soup"
 version = "0.1.0"
 description = "Run an LLM too big for one machine, split across the machines you have."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Apache-2.0" }
-authors = [{ name = "Somatic contributors" }]
+authors = [{ name = "Computer Soup contributors" }]
 keywords = ["llm", "distributed-inference", "model-parallel", "local-first", "self-hosted"]
 dependencies = [
   "accelerate>=1.0",
@@ -32,11 +32,12 @@ dev = [
 ]
 
 [project.scripts]
+soup = "somatic.cli.main:app"
 somatic = "somatic.cli.main:app"
 
 [project.urls]
-Homepage = "https://github.com/marcus-pousette/somatic"
-Repository = "https://github.com/marcus-pousette/somatic"
+Homepage = "https://github.com/marcus-pousette/computer-soup"
+Repository = "https://github.com/marcus-pousette/computer-soup"
 
 [tool.hatch.build.targets.wheel]
 packages = ["somatic"]

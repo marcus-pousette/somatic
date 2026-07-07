@@ -1,4 +1,4 @@
-"""Somatic cluster: run a model too big for one machine, split across the machines you have.
+"""Computer Soup cluster: run a model too big for one machine, split across the machines you have.
 
 Public surface:
     from somatic.cluster import Cluster, Host

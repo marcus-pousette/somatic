@@ -1,4 +1,4 @@
-"""Provision machines for the MLX backend — the MLX counterpart to `somatic
+"""Provision machines for the MLX backend — the MLX counterpart to `soup
 provision`. Creates a `~/mlxenv` with the MLX runtime on each host so `mlx_run.py`
 can just launch. Idempotent: re-running is a fast "ready ✓".
 
@@ -53,7 +53,7 @@ def ssh_args(identity):
 
 
 def provision(label: str, script: str, ssh_target: str | None, identity) -> bool:
-    print(f"somatic-mlx ▸ provision {label} …", flush=True)
+    print(f"soup-mlx ▸ provision {label} …", flush=True)
     if ssh_target is None:
         cmd = ["bash", "-c", script]
     else:
@@ -85,7 +85,7 @@ def main() -> None:
 
     if not ok:
         sys.exit(1)
-    print("somatic-mlx ▸ all hosts ready. Now: mlx_run.py --model … --host … [--serve]", flush=True)
+    print("soup-mlx ▸ all hosts ready. Now: mlx_run.py --model … --host … [--serve]", flush=True)
 
 
 if __name__ == "__main__":

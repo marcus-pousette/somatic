@@ -1,4 +1,4 @@
-"""Somatic Runtime and Somatic Latent Graph.
+"""Computer Soup (Python package `somatic`) — Somatic Runtime and Somatic Latent Graph.
 
 Product surface — run a model too big for one machine, split across the machines you have:
 

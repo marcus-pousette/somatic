@@ -1,7 +1,7 @@
-"""`somatic provision` — make a host ready to hold a slice of the model.
+"""`soup provision` — make a host ready to hold a slice of the model.
 
 Automates the finicky setup that otherwise has to be done by hand on every
-machine before `somatic run` will work: push the current code, make sure the
+machine before `soup run` will work: push the current code, make sure the
 Python env has the deps, and warm the model cache. It is the inverse of the
 `doctor` preflight checks — run it once per machine and preflight goes green.
 
@@ -57,7 +57,7 @@ def _remote_repo(host: Host) -> str:
 
 def _log(quiet: bool, msg: str) -> None:
     if not quiet:
-        print(f"somatic ▸ {msg}", flush=True)
+        print(f"soup ▸ {msg}", flush=True)
 
 
 def _sync_code(host: Host, repo_root: Path) -> tuple[bool, str]:

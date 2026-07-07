@@ -1,4 +1,4 @@
-"""`somatic verify` — prove the exactness/bytes tradeoff for YOUR model.
+"""`soup verify` — prove the exactness/bytes tradeoff for YOUR model.
 
 Runs a set of prompts through the split cluster under each boundary mode and
 reports, honestly and per-model:

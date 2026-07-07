@@ -1,4 +1,4 @@
-"""On-disk record of a launched cluster, so `somatic down` works from any shell.
+"""On-disk record of a launched cluster, so `soup down` works from any shell.
 
 Every run writes `~/.somatic/run/<run_id>/plan.json` (and a `latest` pointer)
 BEFORE workers are health-waited, so a worker that starts then dies is still
