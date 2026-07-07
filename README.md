@@ -153,6 +153,11 @@ The honest short version:
 - When **14B is too big for one machine**, that machine hits the memory-pressure cliff
   (1.43 tok/s); Computer Soup across two decodes it at 2.0–4.3 tok/s, and its shard-local
   loading starts over home WiFi where llama.cpp's weight-shipping RPC stalls.
+- **Speculative decoding** (MLX backend, `--draft`) adds a measured **1.5–1.6×** on top
+  of a 14B three-machine split (5.3–6.4 tok/s), same output as plain greedy — and it
+  should matter more the more machines you add, since it amortizes exactly what
+  splitting adds: network. (Measured on three machines; a clean two-vs-three
+  comparison is still open.)
 
 ```bash
 soup bench Qwen/Qwen3-14B --host localhost --host you@other-machine

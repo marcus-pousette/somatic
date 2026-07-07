@@ -9,7 +9,9 @@ This module is import-guarded: it pulls in `mlx`/`mlx_lm`, which are optional an
 Apple-only, so nothing here is imported unless the MLX backend is selected.
 
 Wire format between driver and worker is a length-framed bf16 hidden-state tensor
-(`[4-byte big-endian length][payload]`, bit-exact); a zero-length frame is a reset.
+(`[4-byte big-endian length][payload]`, bit-exact); a zero-length frame is a reset,
+and a 4-byte frame is a KV-cache trim (speculative-decoding rollback; unambiguous
+because a hidden frame is a multiple of 2*dim bytes and dim is always > 2).
 """
 
 from __future__ import annotations
@@ -113,6 +115,23 @@ class ShardModel:
 
         return int(mx.argmax(self.head_logits(hidden)).item())
 
+    # -- verify pass (speculative decoding) -----------------------------------------
+    def embed_array(self, ids):
+        """Embed a (1, L) MLX id array without a host round-trip."""
+        return self.model.model.embed_tokens(ids)
+
+    def argmax_tokens(self, hidden):
+        """Final norm + lm_head over ALL positions -> (L,) argmax ids, on-device."""
+        import mlx.core as mx
+
+        inner = self.model.model
+        h = inner.norm(hidden)
+        if hasattr(self.model, "lm_head"):
+            logits = self.model.lm_head(h)
+        else:
+            logits = inner.embed_tokens.as_linear(h)
+        return mx.argmax(logits[0], axis=-1)
+
     # -- worker layer range -------------------------------------------------------
     def make_cache(self, start: int, end: int):
         from mlx_lm.models.cache import make_prompt_cache
@@ -127,3 +146,23 @@ class ShardModel:
         for layer, c in zip(layers, cache):
             hidden = layer(hidden, mask, c)
         return hidden
+
+
+def trim_cache(cache, n: int) -> None:
+    """Roll a KV cache back by ``n`` positions (speculative-decoding reject path).
+
+    Loud on failure: sliding-window / SSM caches can't rewind, and mlx_lm signals
+    that by returning a short trim count instead of raising. A silent under-trim
+    would corrupt every subsequent token, so refuse instead.
+    """
+    from mlx_lm.models.cache import trim_prompt_cache
+
+    if n <= 0 or not cache:
+        return
+    trimmed = trim_prompt_cache(cache, n)
+    if trimmed != n:
+        raise RuntimeError(
+            f"KV cache rollback failed: needed {n}, trimmed {trimmed} — this "
+            "model's cache type can't rewind (sliding-window/SSM), so it cannot "
+            "run speculative decoding"
+        )

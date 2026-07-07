@@ -189,6 +189,11 @@ def main() -> None:
     ap.add_argument("--identity", default=None)
     ap.add_argument("--remote-python", default="~/mlxenv/bin/python")
     ap.add_argument("--max-tokens", type=int, default=128)
+    ap.add_argument("--draft", default=None,
+                    help="draft model for speculative decoding (same family as --model, "
+                         "runs whole on the driver) — e.g. Qwen/Qwen3-1.7B for a 14B target")
+    ap.add_argument("--num-draft", type=int, default=6,
+                    help="draft tokens per verify pass (measured optimum ~6)")
     ap.add_argument("--prompt", default="Explain how a computer network routes packets across the internet.")
     ap.add_argument("--serve", action="store_true", help="serve an OpenAI API + chat UI instead of a one-shot generate")
     ap.add_argument("--serve-host", default="127.0.0.1")
@@ -198,6 +203,10 @@ def main() -> None:
     from soup.cluster.hosts import validate_model_id
 
     validate_model_id(args.model)  # it flows into remote shell commands
+    if args.draft:
+        validate_model_id(args.draft)
+        if args.num_draft < 1:
+            ap.error("--num-draft must be >= 1 (drop --draft to disable speculation)")
 
     if args.host:  # auto-fit by free RAM
         print(f"soup-mlx ▸ {args.model}  auto-fit across driver + {len(args.host)} host(s)")
@@ -226,10 +235,14 @@ def main() -> None:
         wait_tcp(w.ip, w.port)
         print(f"  healthy  {w.ip}:{w.port}", flush=True)
 
+    if args.draft:
+        print(f"soup-mlx ▸ speculative decoding: draft {args.draft}, k={args.num_draft}")
     engine = MLXClusterEngine(
         model_id=args.model,
         remote_workers=[RemoteRange(w.ip, w.port, w.start, w.end) for w in workers],
         local_range=(ls, le),
+        draft_model_id=args.draft,
+        num_draft=args.num_draft,
     )
     try:
         if args.serve:
@@ -262,6 +275,8 @@ def _serve(engine: MLXClusterEngine, args) -> None:
         "workers": engine.layout,
         "endpoint": f"http://{args.serve_host}:{args.serve_port}/v1",
     }
+    if args.draft:
+        status["draft"] = f"{args.draft} (k={args.num_draft})"
     app = build_cluster_app(async_engine, model_name=args.model, status=status)
     base = f"http://{args.serve_host}:{args.serve_port}"
     print(f"soup-mlx ▸ serving  chat {base}/   api {base}/v1   (Ctrl-C to stop)", flush=True)

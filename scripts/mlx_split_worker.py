@@ -8,7 +8,9 @@ Deployed to each machine alongside ``mlx_shard.py`` (both need only ``mlx``/
 
 A worker loads the whole model lazily but only ever runs its own layers, so only
 those materialise (shard-only loading). One sequence at a time (home cluster); a
-zero-length frame resets the KV cache for a new sequence.
+zero-length frame resets the KV cache for a new sequence, and a 4-byte frame
+trims it by that many positions (speculative-decoding rollback, no reply — TCP
+ordering guarantees it lands before the next hidden frame).
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ from __future__ import annotations
 import argparse
 import os
 import socket
+import struct
 import sys
 
 # mlx_shard.py is deployed next to this script (mlx-only, no soup dependency).
@@ -65,6 +68,10 @@ def main() -> None:
                 if len(frame) == 0:  # reset: new sequence
                     cache = shard.make_cache(args.start, end)
                     ms.send_frame(conn, b"")
+                    continue
+                if len(frame) == 4:  # KV trim (spec-decode rollback), fire-and-forget
+                    (n_trim,) = struct.unpack(">I", frame)
+                    ms.trim_cache(cache, n_trim)
                     continue
                 hidden = ms.bytes_to_hidden(frame, shard.dim)
                 hidden = shard.run_layers(hidden, cache, args.start, end)

@@ -51,6 +51,48 @@ PYTHONPATH=. ~/mlxenv/bin/python scripts/mlx_run.py \
 
 Manual split instead of auto-fit: `--local 0:20 --worker you@mac=<ip>:5601:20:40`.
 
+## Speculative decoding (`--draft`) — amortize the network
+
+Split decoding is network-bound: every token pays the full hop chain. With
+`--draft`, a small same-family model held whole on the driver proposes `k`
+tokens and **one** multi-token pass through the split target verifies them all —
+the expensive chain runs ~3× less often for the same greedy output. Each pass
+carries more network as machines are added, so the amortization *should* matter
+more with more machines — measured here on three; a clean two-machine
+comparison is still open.
+
+```bash
+PYTHONPATH=. ~/mlxenv/bin/python scripts/mlx_run.py \
+    --model Qwen/Qwen3-14B --draft Qwen/Qwen3-1.7B \
+    --host you@mac-b=<ip> --host you@mac-c=<ip> --identity ~/.ssh/<key>
+```
+
+Measured (3 Macs — M3 Pro 36 GB + M1 Pro 32 GB + M1 Max 32 GB, home WiFi, bf16,
+Qwen3-14B split 14|13|13, no swap; ranges across runs — WiFi and background load
+move the absolutes):
+
+| Qwen3-14B, 3 machines | decode tok/s | speedup |
+|---|---:|---:|
+| plain greedy | 3.5–4.4 | — |
+| + Qwen3-0.6B draft, k=6 | ~6.0 | ~1.45× |
+| + Qwen3-1.7B draft, k=6 | 5.3–6.4 | **1.5–1.6×** |
+
+- The draft must share the target's tokenizer (same family — a Qwen drafts a
+  Qwen). The engine refuses mismatched vocabularies at startup.
+- Rollback needs a rewindable KV cache (the standard `KVCache` — Qwen, most
+  Llama-family models). Sliding-window / SSM caches (gemma-3, gpt-oss, mamba)
+  are refused at startup — or fail loudly mid-run if a sliding window wraps —
+  rather than silently corrupting output.
+- **Exactness**: greedy speculative decoding only accepts tokens the target
+  itself emits — measured byte-identical to plain greedy at 14B. On a small
+  target (1.7B) the batched verify pass can flip a rare bf16 near-tie (top-2
+  logits within ~2 ULPs), giving an equally coherent alternative continuation.
+- **Verify-bound**: the k+1-token verify pass costs ~1.6× a single-token pass,
+  so k beyond ~6 stops helping, and a *stronger* draft that accepts more per
+  pass (1.7B) beats a cheaper one (0.6B) despite costing more to run.
+- Splitting a model that fits one machine is still slower than not splitting —
+  spec-decode narrows that gap, it doesn't reverse it.
+
 ## 3. Serve (OpenAI API + chat UI)
 
 Add `--serve` to turn it into a real server — streaming `/v1/chat/completions`,
@@ -74,6 +116,11 @@ orphaned processes.
   length-framed **bit-exact bf16** socket (`TCP_NODELAY`).
 - **Shard-only loading**: `mlx_lm.load(lazy=True)` — each node materialises only the layers
   it runs (a 14B worker holds ~3 GB, not 30). The rest stay memory-mapped.
+- **Speculative decoding** (`--draft`): the draft loops on-device on the driver, one
+  k+1-token verify pass runs through the whole chain, and every KV cache rolls back by
+  the reject count — locally via `trim_prompt_cache`, remotely via a 4-byte trim frame
+  (unambiguous next to hidden frames, which are multiples of 2·dim bytes). One
+  host↔GPU sync per step.
 - **Serving**: `AsyncMLXEngine` adapts the sync engine to the existing async OpenAI app, so
   the entire OpenAI surface + chat UI is reused unchanged.
 
