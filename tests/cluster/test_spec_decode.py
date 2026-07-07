@@ -52,3 +52,4 @@ def test_num_draft_validated_at_construction() -> None:
         MLXClusterEngine(
             model_id="m", remote_workers=[], draft_model_id="d", num_draft=0
         )
+

@@ -8,7 +8,7 @@ order, apply norm + lm_head, and greedily sample — one token at a time.
 Difference from the PyTorch `ClusterEngine`: compute is MLX (measured ~2× faster
 per node, and it beats llama.cpp), the driver runs its *own* first layer range
 in-process (no socket hop), and remote ranges are reached over a length-framed
-fp16 socket. `mlx_lm.load(lazy=True)` means each node materialises only the layers
+bit-exact bf16 socket. `mlx_lm.load(lazy=True)` means each node materialises only the layers
 it runs — shard-only loading, for free.
 
 One generation at a time (home cluster); workers hold per-sequence KV caches.
@@ -145,28 +145,40 @@ class MLXClusterEngine:
                 eos.add(got)
         return eos
 
-    # -- one hop to a remote layer range ------------------------------------------
-    def _remote(self, sock: socket.socket, hidden):
-        ms.send_frame(sock, ms.hidden_to_bytes(hidden))
-        resp = ms.recv_frame(sock)
-        if resp is None:
-            raise ConnectionError("worker closed the connection mid-generation")
-        return ms.bytes_to_hidden(resp, self.shard.dim)
-
     def _reset_remotes(self) -> None:
         for sock in self._sockets:
             ms.send_frame(sock, b"")
             ms.recv_frame(sock)
 
     def _chain(self, hidden, local_cache):
-        """Embed-output hidden -> local range + every remote range, in order."""
+        """Embed-output hidden -> local range + every remote range, in order.
+
+        Between remote hops the payload is relayed as raw bytes — worker N's
+        output IS worker N+1's input, and the bf16 wire format is a lossless
+        bit-pattern, so decoding to an array in between is pure waste.
+        """
         if self.local_end > self.local_start:
             hidden = self.shard.run_layers(
                 hidden, local_cache, self.local_start, self.local_end
             )
+        if not self._sockets:
+            return hidden
+        payload = ms.hidden_to_bytes(hidden)
+        token_bytes = 2 * self.shard.dim
         for sock in self._sockets:
-            hidden = self._remote(sock, hidden)
-        return hidden
+            ms.send_frame(sock, payload)
+            payload = ms.recv_frame(sock)
+            if payload is None:
+                raise ConnectionError("worker closed the connection mid-generation")
+            if not payload or len(payload) % token_bytes:
+                # Never relay a bad frame onward: b'' would reset every
+                # downstream cache and a ragged length would kill the next
+                # worker's process — fail loudly at the hop that produced it.
+                raise ConnectionError(
+                    f"worker returned a malformed frame ({len(payload)} bytes, "
+                    f"expected a positive multiple of {token_bytes})"
+                )
+        return ms.bytes_to_hidden(payload, self.shard.dim)
 
     def _forward(self, hidden, local_cache) -> int:
         """Embed-output hidden -> chain local + remote ranges -> next token id."""
@@ -265,7 +277,11 @@ class MLXClusterEngine:
                 c = d.reshape(1, 1)
             darr = mx.stack(drafts)
 
-            # 2) one verify pass of [cur, d1..dk] through the whole chain
+            # 2) one verify pass of [cur, d1..dk] through the whole chain.
+            #    (Drafting the next chunk during this pass's network wait was
+            #    tried and measured NEUTRAL-to-negative on the real rig: the
+            #    win only lands on full-accept steps ~20% of the time, and the
+            #    queued draft work delays the verify head-compute — don't.)
             verify_ids = mx.concatenate([cur.reshape(1), darr]).reshape(1, k + 1)
             hidden = self._chain(self.shard.embed_array(verify_ids), local_cache)
             tnext = self.shard.argmax_tokens(hidden)  # (k+1,) greedy targets
