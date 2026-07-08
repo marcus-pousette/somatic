@@ -19,3 +19,6 @@ venv/
 
 # OS
 .DS_Store
+
+# local uv lockfile (not part of the published package)
+uv.lock

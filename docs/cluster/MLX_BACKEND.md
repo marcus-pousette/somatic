@@ -93,6 +93,29 @@ move the absolutes):
 - Splitting a model that fits one machine is still slower than not splitting —
   spec-decode narrows that gap, it doesn't reverse it.
 
+### Tree speculation (`--tree`, experimental)
+
+`--draft --tree` verifies a small *branched* tree of draft continuations in one
+pass instead of a single linear chain, branching only where the draft is unsure
+(its top-2 router gap is small). This raises **draft acceptance** — in a localhost
+measurement the adaptive tree accepted ~90% more draft tokens per verify pass than
+linear at the same budget. Output matches plain greedy exactly (same near-tie
+caveat as above). Higher acceptance should translate into speed only when the pass
+is network-bound; the end-to-end **tok/s speedup is not yet rig-measured**, so none
+is claimed here — measure it on your own cluster:
+
+```bash
+PYTHONPATH=. ~/mlxenv/bin/python scripts/mlx_run.py \
+    --model Qwen/Qwen3-14B --draft Qwen/Qwen3-1.7B --tree \
+    --host you@mac-b=<ip> --host you@mac-c=<ip> --identity ~/.ssh/<key>
+```
+
+Wire protocol: the tree rides the same length-framed socket. Frames discriminate
+by size — a hidden frame is always an even byte count (2 bytes/element), a reset
+is zero-length, a linear KV trim is 4 bytes, and the two tree control frames
+(`TREE` metadata before a tree block, `COMP` to compact the cache to the accepted
+path) are padded to an odd length so they can never be mistaken for a hidden frame.
+
 ## 3. Serve (OpenAI API + chat UI)
 
 Add `--serve` to turn it into a real server — streaming `/v1/chat/completions`,

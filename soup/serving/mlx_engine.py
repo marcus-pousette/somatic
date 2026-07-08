@@ -34,6 +34,40 @@ class RemoteRange:
     layer_end: int
 
 
+def tree_accept(tokens: list[int], parents: list[int], target_next: list[int]) -> tuple[list[int], int]:
+    """Walk the tree along the target's own greedy picks.
+
+    Returns (accepted node indices root-first, bonus token) — the bonus is the
+    target's pick after the deepest accepted node (never itself in the tree
+    unless a matching child exists, in which case we keep walking).
+    """
+    children: dict[int, list[int]] = {}
+    for i, p in enumerate(parents):
+        children.setdefault(p, []).append(i)
+    node, accepted = 0, [0]
+    while True:
+        want = int(target_next[node])
+        match = next((c for c in children.get(node, []) if tokens[c] == want), None)
+        if match is None:
+            return accepted, want
+        accepted.append(match)
+        node = match
+
+
+def tree_draft_keep(accepted: list[int], fed_pos: dict[int, int]) -> tuple[list[int], bool]:
+    """Which draft-cache tree-block columns survive an accept.
+
+    accepted: tree node indices, root-first (root's feed is part of the committed
+    chain, not the block). fed_pos: node index -> block-local feed position, for
+    nodes the draft actually forwarded (interior nodes; a leaf was never fed).
+    Returns (block-local positions to keep, whether the LAST accepted node was
+    unfed — its token must be re-fed as part of the next step's chain).
+    """
+    keep = [fed_pos[i] for i in accepted[1:] if i in fed_pos]
+    last_unfed = len(accepted) > 1 and accepted[-1] not in fed_pos
+    return keep, last_unfed
+
+
 def spec_trims(k: int, n_acc: int) -> tuple[int, int, bool]:
     """Cache bookkeeping after a verify pass accepted ``n_acc`` of ``k`` drafts.
 
@@ -59,6 +93,10 @@ class MLXClusterEngine:
         local_range: tuple[int, int] = (0, 0),
         draft_model_id: str | None = None,
         num_draft: int = 6,
+        tree_spec: bool = False,
+        tree_tau: float = 2.0,
+        tree_depth: int = 8,
+        tree_budget: int = 24,
     ) -> None:
         # local_range = layers the driver runs in-process (usually (0, k)); the
         # remote_workers cover the rest, contiguous and in order. A draft model
@@ -67,11 +105,19 @@ class MLXClusterEngine:
         # passes (exactness scope: docs/cluster/MLX_BACKEND.md).
         if num_draft < 1:
             raise ValueError(f"num_draft must be >= 1, got {num_draft}")
+        if tree_spec and not draft_model_id:
+            raise ValueError("tree_spec requires a draft model")
+        if tree_spec and (tree_depth < 1 or tree_budget < 2):
+            raise ValueError("tree_spec needs tree_depth >= 1 and tree_budget >= 2")
         self.model_id = model_id
         self.local_start, self.local_end = local_range
         self.remote_workers = sorted(remote_workers, key=lambda w: w.layer_start)
         self.draft_model_id = draft_model_id
         self.num_draft = num_draft
+        self.tree_spec = tree_spec
+        self.tree_tau = tree_tau
+        self.tree_depth = tree_depth
+        self.tree_budget = tree_budget
         self.shard: ms.ShardModel | None = None
         self._draft = None
         self._sockets: list[socket.socket] = []
@@ -213,9 +259,8 @@ class MLXClusterEngine:
         self._reset_remotes()
 
         if self._draft is not None:
-            generated = self._spec_generate(
-                prompt_ids, local_cache, max_new_tokens, on_token
-            )
+            gen = self._tree_generate if self.tree_spec else self._spec_generate
+            generated = gen(prompt_ids, local_cache, max_new_tokens, on_token)
             return [t for t in generated if t not in self._eos_ids]
 
         # Prefill the whole prompt through the chain, then the decode loop.
@@ -304,6 +349,203 @@ class MLXClusterEngine:
                     done = True
                     break
             cur = tnext[n_acc]  # stays on-device; unused when done
+
+            if on_token is not None:
+                visible = [t for t in generated if t not in self._eos_ids]
+                full = self.shard.tokenizer.decode(visible)
+                if len(full) > len(printed):
+                    on_token(full[len(printed):])
+                    printed = full
+        return generated
+
+    # ---- tree speculation -------------------------------------------------------
+
+    def _chain_tree(self, tokens, depths, parents, local_cache):
+        """One tree-verify pass: local tree layers, then TREE-meta + hidden to
+        each worker in chain order (raw-byte relay between hops)."""
+        import mlx.core as mx
+
+        hidden = self.shard.embed_array(mx.array([tokens]))
+        if self.local_end > self.local_start:
+            hidden = ms.run_layers_tree(
+                self.shard.model, hidden, local_cache,
+                self.local_start, self.local_end, depths, parents,
+            )
+        if not self._sockets:
+            return hidden
+        meta = ms.encode_tree_meta(depths, parents)
+        payload = ms.hidden_to_bytes(hidden)
+        token_bytes = 2 * self.shard.dim
+        for sock in self._sockets:
+            ms.send_frame(sock, meta)
+            ms.send_frame(sock, payload)
+            payload = ms.recv_frame(sock)
+            if payload is None:
+                raise ConnectionError("worker closed the connection mid-generation")
+            if not payload or len(payload) % token_bytes:
+                raise ConnectionError(
+                    f"worker returned a malformed frame ({len(payload)} bytes)"
+                )
+        return ms.bytes_to_hidden(payload, self.shard.dim)
+
+    def _draft_block(self, token_ids, rope_offsets, mask_rows, dcache):
+        """Forward a block of tokens through the WHOLE draft with explicit
+        positions + mask; returns the draft's logits rows (L, vocab)."""
+        import mlx.core as mx
+
+        inner = self._draft.model
+        h = inner.embed_tokens(mx.array([token_ids]))
+        for layer, c in zip(inner.layers, dcache):
+            x = h
+            a = ms.tree_attention(
+                layer.self_attn, layer.input_layernorm(x), rope_offsets, mask_rows, c
+            )
+            h = x + a
+            h = h + layer.mlp(layer.post_attention_layernorm(h))
+        hh = inner.norm(h)
+        if hasattr(self._draft, "lm_head"):
+            return self._draft.lm_head(hh)[0]
+        return inner.embed_tokens.as_linear(hh)[0]
+
+    def _build_draft_tree(self, chain, chain_start, dcache):
+        """Grow a confidence-adaptive draft tree with a CACHED draft.
+
+        chain: committed tokens the draft hasn't cached yet; its last element is
+        the tree root. chain_start: absolute position of chain[0]. Branch where
+        the draft's top-2 logit gap < tree_tau; one draft forward per level.
+        Returns (tokens, parents, depths, fed_pos, block_start) — fed_pos maps
+        node -> block-local draft-cache column, block_start = cache offset where
+        the tree block begins (right after the chain).
+        """
+        import mlx.core as mx
+
+        n_chain = len(chain)
+        base = dcache[0].offset
+        causal = mx.array([[j <= i for j in range(n_chain)] for i in range(n_chain)])
+        if base:
+            rows = mx.concatenate(
+                [mx.ones((n_chain, base), dtype=mx.bool_), causal], axis=1
+            )
+        else:
+            rows = causal
+        logits = self._draft_block(
+            chain, [chain_start + i for i in range(n_chain)], rows, dcache
+        )
+        root_row = logits[-1]
+        block_start = dcache[0].offset             # == committed length incl. root
+        root_pos = chain_start + n_chain - 1
+
+        tokens = [chain[-1]]
+        parents = [-1]
+        depths = [0]
+        anc_fed: list[list[int]] = [[]]            # block-local fed ancestor columns
+        fed_pos: dict[int, int] = {}
+        frontier = [(0, root_row)]
+        n_fed = 0
+        while frontier:
+            level = []
+            for idx, row in frontier:
+                if depths[idx] >= self.tree_depth or len(tokens) >= self.tree_budget:
+                    continue
+                top2 = sorted(
+                    (int(t) for t in mx.argpartition(-row, 2)[:2].tolist()),
+                    key=lambda t: -float(row[t]),
+                )
+                picks = top2 if float(row[top2[0]] - row[top2[1]]) < self.tree_tau else top2[:1]
+                for t in picks:
+                    if len(tokens) >= self.tree_budget:
+                        break
+                    child = len(tokens)
+                    tokens.append(t)
+                    parents.append(idx)
+                    depths.append(depths[idx] + 1)
+                    anc_fed.append(anc_fed[idx] + ([fed_pos[idx]] if idx in fed_pos else []))
+                    level.append(child)
+            # feed only nodes that can still be expanded (leaves stay unfed)
+            feed = [c for c in level
+                    if depths[c] < self.tree_depth and len(tokens) < self.tree_budget]
+            if not feed:
+                break
+            cur = dcache[0].offset
+            row_list = []
+            for pos_in_feed, c in enumerate(feed):
+                row = [False] * (cur + len(feed))
+                for j in range(block_start):
+                    row[j] = True                          # full committed prefix
+                for p in anc_fed[c]:
+                    row[block_start + p] = True            # fed tree ancestors
+                row[cur + pos_in_feed] = True              # self
+                row_list.append(row)
+            logits = self._draft_block(
+                [tokens[c] for c in feed],
+                [root_pos + depths[c] for c in feed],
+                mx.array(row_list),
+                dcache,
+            )
+            for i, c in enumerate(feed):
+                fed_pos[c] = n_fed + i
+            n_fed += len(feed)
+            frontier = [(c, logits[i]) for i, c in enumerate(feed)]
+        return tokens, parents, depths, fed_pos, block_start
+
+    def _tree_generate(
+        self,
+        prompt_ids: list[int],
+        local_cache,
+        max_new_tokens: int,
+        on_token: Callable[[str], None] | None,
+    ) -> list[int]:
+        """Adaptive tree speculation — same greedy-only guarantee as the linear
+        path (accepted tokens are the target's own argmax picks), but the verify
+        pass carries a small TREE of draft continuations, branching where the
+        draft is unsure. More accepted tokens per (latency-bound) chain pass.
+        """
+        import mlx.core as mx
+        from mlx_lm.models.cache import make_prompt_cache
+
+        dcache = make_prompt_cache(self._draft)
+        hidden = self._chain(self.shard.embed(prompt_ids), local_cache)
+        token = self.shard.argmax_token(hidden)
+        self._draft(mx.array([prompt_ids]), cache=dcache)  # stock causal prefill
+
+        generated = [token]
+        printed = ""
+        seq_len = len(prompt_ids) + 1     # committed length, root included
+        chain = [token]                   # committed tokens not yet in the draft cache
+        chain_start = len(prompt_ids)
+        done = token in self._eos_ids
+        while not done and len(generated) < max_new_tokens:
+            tokens, parents, depths, fed_pos, dblock = self._build_draft_tree(
+                chain, chain_start, dcache
+            )
+            hidden = self._chain_tree(tokens, depths, parents, local_cache)
+            tnext = self.shard.argmax_tokens(hidden)
+            accepted, bonus = tree_accept(tokens, parents, [int(t) for t in tnext.tolist()])
+
+            # target caches: keep only the accepted path's tree columns
+            if local_cache:
+                ms.compact_cache_block(
+                    local_cache, local_cache[0].offset - len(tokens), accepted
+                )
+            comp = ms.encode_compact(accepted)
+            for sock in self._sockets:
+                ms.send_frame(sock, comp)  # fire-and-forget, like linear trim
+
+            # draft cache: keep the fed accepted nodes
+            keep, _ = tree_draft_keep(accepted, fed_pos)
+            ms.compact_cache_block(dcache, dblock, keep)
+
+            new = [tokens[i] for i in accepted[1:]] + [bonus]
+            for t in new:
+                generated.append(t)
+                if t in self._eos_ids or len(generated) >= max_new_tokens:
+                    done = True
+                    break
+            if not done:
+                # next chain = committed tokens past the draft cache's coverage
+                chain_start = seq_len + len(keep)
+                chain = new[len(keep):]
+                seq_len += len(new)
 
             if on_token is not None:
                 visible = [t for t in generated if t not in self._eos_ids]

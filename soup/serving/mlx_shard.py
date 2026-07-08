@@ -88,12 +88,17 @@ class ShardModel:
     """
 
     def __init__(self, model_id: str):
+        import mlx.core as mx
         from mlx_lm import load
 
         self.model_id = model_id
         self.model, self.tokenizer = load(model_id, lazy=True)
         inner = self.model.model
-        self.dim = int(inner.embed_tokens.weight.shape[1])
+        # The wire carries activations, so dim must be the ACTIVATION width. Do
+        # not read embed_tokens.weight.shape[1]: for a quantized model that weight
+        # is bit-packed (e.g. 8-bit packs 4 values per uint32), so its shape is
+        # dim / packing-factor. Measure the true width from a one-token embed.
+        self.dim = int(inner.embed_tokens(mx.array([[0]])).shape[-1])
         self.n_layers = len(inner.layers)
 
     # -- driver head --------------------------------------------------------------
@@ -146,6 +151,164 @@ class ShardModel:
         for layer, c in zip(layers, cache):
             hidden = layer(hidden, mask, c)
         return hidden
+
+
+# ----- tree speculation: control frames, tree attention, cache compaction -------------
+#
+# Control frames ride the same length-framed socket as hidden frames. Hidden frames
+# are always an EVEN number of bytes (2 bytes/element), so control frames are padded
+# to an ODD length — the two can never be confused — and carry a 4-byte magic.
+
+TREE_MAGIC = b"TREE"  # tree-verify metadata; the next frame is the tree's hidden states
+COMP_MAGIC = b"COMP"  # compaction: keep these tree-local indices, drop the rest
+
+
+def _pad_odd(payload: bytes) -> bytes:
+    return payload if len(payload) % 2 == 1 else payload + b"\x00"
+
+
+def encode_tree_meta(depths: list[int], parents: list[int]) -> bytes:
+    n = len(depths)
+    out = TREE_MAGIC + struct.pack(">I", n)
+    out += b"".join(struct.pack(">Hi", d, p) for d, p in zip(depths, parents))
+    return _pad_odd(out)
+
+
+def encode_compact(indices: list[int]) -> bytes:
+    out = COMP_MAGIC + struct.pack(">I", len(indices))
+    out += b"".join(struct.pack(">H", i) for i in indices)
+    return _pad_odd(out)
+
+
+def decode_control(frame: bytes):
+    """Return ("tree", depths, parents) / ("compact", indices) / None."""
+    if len(frame) % 2 == 0 or len(frame) < 8:
+        return None
+    magic, n = frame[:4], struct.unpack(">I", frame[4:8])[0]
+    if magic == TREE_MAGIC:
+        depths, parents = [], []
+        for i in range(n):
+            d, p = struct.unpack_from(">Hi", frame, 8 + 6 * i)
+            depths.append(d)
+            parents.append(p)
+        return ("tree", depths, parents)
+    if magic == COMP_MAGIC:
+        return ("compact", list(struct.unpack_from(f">{n}H", frame, 8)))
+    return None
+
+
+def ancestor_mask(parents: list[int]):
+    """(N, N) bool rows: node i attends to node j iff j is an ancestor-or-self of i."""
+    n = len(parents)
+    rows = [[False] * n for _ in range(n)]
+    for i in range(n):
+        j = i
+        while j != -1:
+            rows[i][j] = True
+            j = parents[j]
+    return rows
+
+
+def tree_attention(attn, x, rope_offsets, mask_rows, cache):
+    """One attention layer over a block of tree tokens.
+
+    rope_offsets: per-token ABSOLUTE rope position (applied per equal-offset
+    group — mx.fast.rope only takes a scalar). mask_rows: (L, cache_len_after_
+    update) bool mx array — row i is True where token i may attend. Requires a
+    Llama/Qwen-shaped attention module (q/k/v/o proj + rope; q/k_norm optional).
+    """
+    import mlx.core as mx
+    from mlx_lm.models.base import scaled_dot_product_attention
+
+    B, L, _ = x.shape
+    q = attn.q_proj(x).reshape(B, L, attn.n_heads, -1)
+    k = attn.k_proj(x).reshape(B, L, attn.n_kv_heads, -1)
+    if hasattr(attn, "q_norm"):
+        q = attn.q_norm(q)
+    if hasattr(attn, "k_norm"):
+        k = attn.k_norm(k)
+    q = q.transpose(0, 2, 1, 3)
+    k = k.transpose(0, 2, 1, 3)
+    v = attn.v_proj(x).reshape(B, L, attn.n_kv_heads, -1).transpose(0, 2, 1, 3)
+
+    # rope(x, offset=k) assigns CONSECUTIVE positions k, k+1, ... along the
+    # sequence axis — so tokens can only share a call if their positions form a
+    # consecutive run in index order. Same-depth siblings do NOT (they need the
+    # SAME position), so split into maximal consecutive runs (a chain is one
+    # run; branched trees get one call per run).
+    q_out = mx.zeros_like(q)
+    k_out = mx.zeros_like(k)
+    i = 0
+    while i < L:
+        j = i + 1
+        while j < L and rope_offsets[j] == rope_offsets[j - 1] + 1:
+            j += 1
+        q_out[:, :, i:j, :] = attn.rope(q[:, :, i:j, :], offset=rope_offsets[i])
+        k_out[:, :, i:j, :] = attn.rope(k[:, :, i:j, :], offset=rope_offsets[i])
+        i = j
+    k, v = cache.update_and_fetch(k_out, v)
+
+    add_mask = mx.where(mask_rows, 0.0, -mx.inf).astype(q_out.dtype)
+    o = scaled_dot_product_attention(
+        q_out, k, v, cache=cache, scale=attn.scale, mask=add_mask
+    )
+    return attn.o_proj(o.transpose(0, 2, 1, 3).reshape(B, L, -1))
+
+
+def tree_block_inputs(depths: list[int], parents: list[int], base_offset: int):
+    """(rope_offsets, mask_rows builder input) for a SELF-CONTAINED tree block:
+    every node attends to the whole committed prefix [0, base_offset) plus its
+    ancestors-and-self inside the block."""
+    import mlx.core as mx
+
+    rows = ancestor_mask(parents)
+    n = len(parents)
+    if base_offset:
+        prefix = mx.ones((n, base_offset), dtype=mx.bool_)
+        mask_rows = mx.concatenate([prefix, mx.array(rows)], axis=1)
+    else:
+        mask_rows = mx.array(rows)
+    return [base_offset + d for d in depths], mask_rows
+
+
+def run_layers_tree(model, hidden, cache, start: int, end: int,
+                    depths: list[int], parents: list[int]):
+    """Tree counterpart of ShardModel.run_layers over layers [start, end) for a
+    self-contained tree block (worker side). Cache offsets = committed length."""
+    layers = model.model.layers[start:end]
+    if not layers:
+        return hidden
+    # identical for every layer (all caches sit at the same committed offset)
+    offs, mask_rows = tree_block_inputs(depths, parents, cache[0].offset)
+    for layer, c in zip(layers, cache):
+        x = hidden
+        a = tree_attention(layer.self_attn, layer.input_layernorm(x), offs, mask_rows, c)
+        h = x + a
+        hidden = h + layer.mlp(layer.post_attention_layernorm(h))
+    return hidden
+
+
+def compact_cache_block(cache, block_start: int, keep: list[int]) -> None:
+    """Gather tree-block columns `keep` (tree-local) to [block_start, ...) and trim."""
+    import mlx.core as mx
+
+    if not keep:
+        for c in cache:
+            c.offset = block_start
+        return
+    cols = mx.array([block_start + i for i in keep])
+    m = len(keep)
+    for c in cache:
+        k = mx.take(c.keys, cols, axis=2)
+        v = mx.take(c.values, cols, axis=2)
+        # Materialise the gather BEFORE the overlapping write-back: the lazy
+        # take reads the same buffer the slice-assign may update in place
+        # (donation), and non-contiguous `keep` makes that a real read/write
+        # race — silent KV corruption that only surfaces tokens later.
+        mx.eval(k, v)
+        c.keys[..., block_start:block_start + m, :] = k
+        c.values[..., block_start:block_start + m, :] = v
+        c.offset = block_start + m
 
 
 def trim_cache(cache, n: int) -> None:

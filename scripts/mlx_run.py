@@ -194,6 +194,9 @@ def main() -> None:
                          "runs whole on the driver) — e.g. Qwen/Qwen3-1.7B for a 14B target")
     ap.add_argument("--num-draft", type=int, default=6,
                     help="draft tokens per verify pass (measured optimum ~6)")
+    ap.add_argument("--tree", action="store_true",
+                    help="[experimental] adaptive TREE speculation (needs --draft): "
+                         "branch where the draft is unsure; more tokens per chain pass")
     ap.add_argument("--prompt", default="Explain how a computer network routes packets across the internet.")
     ap.add_argument("--serve", action="store_true", help="serve an OpenAI API + chat UI instead of a one-shot generate")
     ap.add_argument("--serve-host", default="127.0.0.1")
@@ -203,6 +206,8 @@ def main() -> None:
     from soup.cluster.hosts import validate_model_id
 
     validate_model_id(args.model)  # it flows into remote shell commands
+    if args.tree and not args.draft:
+        ap.error("--tree requires --draft")           # fail before deploying workers
     if args.draft:
         validate_model_id(args.draft)
         if args.num_draft < 1:
@@ -236,13 +241,16 @@ def main() -> None:
         print(f"  healthy  {w.ip}:{w.port}", flush=True)
 
     if args.draft:
-        print(f"soup-mlx ▸ speculative decoding: draft {args.draft}, k={args.num_draft}")
+        mode = "tree speculation" if args.tree else "speculative decoding"
+        print(f"soup-mlx ▸ {mode}: draft {args.draft}" +
+              ("" if args.tree else f", k={args.num_draft}"))
     engine = MLXClusterEngine(
         model_id=args.model,
         remote_workers=[RemoteRange(w.ip, w.port, w.start, w.end) for w in workers],
         local_range=(ls, le),
         draft_model_id=args.draft,
         num_draft=args.num_draft,
+        tree_spec=args.tree,
     )
     try:
         if args.serve:
