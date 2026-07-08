@@ -92,6 +92,29 @@ home network you already have — where it starts faster (local shard load), run
 under a split (~2× vs 5.5× slowdown), and with the MLX backend is the fastest thing
 we measured on Apple Silicon, single-machine or split.
 
+## Speculative decoding — beating the split's own roofline
+
+A layer-split is memory-bandwidth bound: every token pays the full hop chain. **Speculative
+decoding** (`--draft`) breaks that — a small same-family draft model on the driver proposes
+`k` tokens and **one** multi-token pass through the split target verifies them all, so the
+expensive chain runs fewer times for the *same greedy output*. It's the one lever that beats
+the per-token roofline, and the home-cluster category (exo) doesn't have it. Measured on a
+**14B, three-machine bf16 split** (M3 Pro + M1 Pro + M1 Max, home WiFi, no swap); receipt:
+[benchmarks/2026-07-07-spec-decode-3machine.md](benchmarks/2026-07-07-spec-decode-3machine.md):
+
+| Qwen3-14B, 3 machines | decode tok/s | speedup |
+|---|---:|---:|
+| plain greedy | 3.5–4.4 | — |
+| + Qwen3-0.6B draft, k=6 | ~6.0 | ~1.45× |
+| + Qwen3-1.7B draft, k=6 | **5.3–6.4** | **1.5–1.6×** |
+
+Output is **byte-identical to plain greedy** (greedy spec-decode only accepts tokens the
+target itself emits). It's *verify-bound* — the k+1-token pass costs ~1.6× a single-token
+pass — so the win grows with how network-dominated the pass is, and a *stronger* draft
+(1.7B) beats a cheaper one (0.6B) by triggering fewer of the expensive verify passes. On a
+model that fits one machine, spec-decode is ~a wash (the target pass is too cheap to
+amortize); it pays off exactly in the split-a-big-model regime this tool is for.
+
 ## The wider landscape (others' reported numbers — not measured by us)
 
 Unlike the table above, these are **not** our measurements — they're figures other
